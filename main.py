@@ -3,21 +3,31 @@ from __future__ import annotations
 import argparse
 import logging
 from pathlib import Path
+from typing import List
 
 
 from crawler import crawl_models
-from normalizer import normalize_model_name
+
+from models import (
+    ProviderModel,
+    ModelCapability,
+)
 
 from builder import (
-    build_logical_models,
-    build_capability_models,
+    FallbackBuilder,
 )
 
 from config_builder import (
     LiteLLMConfigBuilder,
 )
 
-from providers import SUPPORTED_PROVIDERS
+from providers import (
+    SUPPORTED_PROVIDERS,
+)
+
+from normalizer import (
+    normalize_model_name,
+)
 
 
 
@@ -37,7 +47,7 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description=(
             "Generate LiteLLM config "
-            "from freellm free models"
+            "from freellm models"
         )
     )
 
@@ -81,10 +91,8 @@ def filter_supported_models(
             )
 
 
-            if (
-                provider
-                not in SUPPORTED_PROVIDERS
-            ):
+            if provider not in SUPPORTED_PROVIDERS:
+
                 continue
 
 
@@ -123,6 +131,10 @@ def normalize_models(
                 model.get(
                     "name"
                 )
+                or
+                model.get(
+                    "model"
+                )
             )
 
 
@@ -141,7 +153,214 @@ def normalize_models(
         except Exception:
 
             logging.exception(
-                "normalize failed"
+                "normalize model failed"
+            )
+
+
+    return result
+
+
+
+def build_capability(
+    data,
+) -> ModelCapability:
+
+    """
+    dict capability
+    转换为 ModelCapability
+    """
+
+
+    if isinstance(
+        data,
+        ModelCapability,
+    ):
+
+        return data
+
+
+    capability = ModelCapability()
+
+
+    if not isinstance(
+        data,
+        dict,
+    ):
+
+        return capability
+
+
+
+    for field in vars(
+        capability
+    ):
+
+        if data.get(
+            field,
+            False,
+        ):
+
+            setattr(
+                capability,
+                field,
+                True,
+            )
+
+
+    return capability
+
+
+
+def convert_to_provider_models(
+    models,
+) -> List[ProviderModel]:
+
+    """
+    crawler 输出:
+
+    dict
+
+    转换:
+
+    ProviderModel
+    """
+
+
+    result = []
+
+
+    for item in models:
+
+        try:
+
+            provider = item.get(
+                "provider",
+                "",
+            )
+
+
+            logical_name = (
+                item.get(
+                    "logical_name"
+                )
+                or
+                item.get(
+                    "name"
+                )
+                or
+                item.get(
+                    "model"
+                )
+            )
+
+
+            model_id = (
+                item.get(
+                    "model_id"
+                )
+                or
+                item.get(
+                    "model"
+                )
+                or
+                logical_name
+            )
+
+
+            provider_model = ProviderModel(
+
+                provider=provider,
+
+
+                logical_name=normalize_model_name(
+                    logical_name
+                ),
+
+
+                model_id=model_id,
+
+
+                api_base=item.get(
+                    "base_url",
+                    ""
+                )
+                or
+                item.get(
+                    "api_base",
+                    ""
+                ),
+
+
+                api_format=item.get(
+                    "api_format",
+                    ""
+                ),
+
+
+                api_key_env=item.get(
+                    "api_key_env",
+                    ""
+                ),
+
+
+                api_key_envs=item.get(
+                    "api_key_envs",
+                    [],
+                ),
+
+
+                deployment_name=(
+                    provider
+                    +
+                    "-"
+                    +
+                    model_id
+                ),
+
+
+                context_window=item.get(
+                    "context_window"
+                ),
+
+
+                max_output_tokens=item.get(
+                    "max_output_tokens"
+                ),
+
+
+                capability=build_capability(
+                    item.get(
+                        "capability",
+                        {}
+                    )
+                    or
+                    item.get(
+                        "capabilities",
+                        {}
+                    )
+                ),
+
+
+                raw_tags=item.get(
+                    "tags",
+                    []
+                ),
+
+
+                metadata=item,
+
+            )
+
+
+            result.append(
+                provider_model
+            )
+
+
+        except Exception:
+
+            logging.exception(
+                "convert ProviderModel failed"
             )
 
 
@@ -151,47 +370,35 @@ def normalize_models(
 
 def main():
 
-
     args = parse_args()
 
 
 
     logging.info(
-        "Start crawling freellm top %s models",
+        "Start crawling top %s models",
         args.top,
     )
 
 
 
     #
-    # 1. Crawl
+    # 1. crawl
     #
-    try:
-
-        models = crawl_models(
-            top_k=args.top
-        )
-
-
-    except Exception:
-
-        logging.exception(
-            "crawl failed"
-        )
-
-        return
+    models = crawl_models(
+        top_k=args.top
+    )
 
 
 
     logging.info(
-        "Crawler returned %s models",
+        "Crawler models: %s",
         len(models),
     )
 
 
 
     #
-    # 2. Provider filter
+    # 2. provider filter
     #
     models = filter_supported_models(
         models
@@ -199,14 +406,14 @@ def main():
 
 
     logging.info(
-        "After provider filter: %s",
+        "Supported models: %s",
         len(models),
     )
 
 
 
     #
-    # 3. Normalize brand name
+    # 3. normalize
     #
     models = normalize_models(
         models
@@ -215,24 +422,54 @@ def main():
 
 
     #
-    # 4. Build logical models
+    # 4. dict -> ProviderModel
     #
-    try:
-
-        logical_models = (
-            build_logical_models(
-                models
-            )
+    provider_models = (
+        convert_to_provider_models(
+            models
         )
+    )
 
 
-    except Exception:
 
-        logging.exception(
-            "build logical models failed"
+    logging.info(
+        "ProviderModel count: %s",
+        len(provider_models),
+    )
+
+
+
+    if not provider_models:
+
+        logging.error(
+            "No valid ProviderModel"
         )
 
         return
+
+
+
+    #
+    # 5. Builder
+    #
+    builder = FallbackBuilder()
+
+
+
+    build_result = builder.build(
+        provider_models
+    )
+
+
+
+    logical_models = (
+        build_result.logical_models
+    )
+
+
+    capability_groups = (
+        build_result.capability_groups
+    )
 
 
 
@@ -242,40 +479,24 @@ def main():
     )
 
 
-
-    #
-    # 5. Capability models
-    #
-    try:
-
-        capability_models = (
-            build_capability_models(
-                logical_models
-            )
-        )
-
-
-    except Exception:
-
-        logging.exception(
-            "capability build failed"
-        )
-
-        capability_models = {}
+    logging.info(
+        "Capability groups: %s",
+        len(capability_groups),
+    )
 
 
 
     #
-    # 6. Build LiteLLM config
+    # 6. LiteLLM config
     #
-    builder = (
+    config_builder = (
         LiteLLMConfigBuilder()
     )
 
 
-    config = builder.build(
+    config = config_builder.build(
         logical_models,
-        capability_models,
+        capability_groups,
     )
 
 
@@ -283,9 +504,11 @@ def main():
     #
     # 7. Save
     #
-    builder.save(
+    config_builder.save(
         config,
-        Path(args.output),
+        Path(
+            args.output
+        ),
     )
 
 
