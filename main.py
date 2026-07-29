@@ -462,14 +462,17 @@ def main():
 
 
 
-    logical_models = (
-        build_result.logical_models
+    logical_models = list(
+        build_result.logical_models.values()
     )
 
 
-    capability_groups = (
-        build_result.capability_groups
-    )
+
+    capability_groups = {
+    name: group.models
+    for name, group
+    in build_result.capability_groups.items()
+}
 
 
 
