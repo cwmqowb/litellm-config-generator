@@ -1,207 +1,470 @@
+from __future__ import annotations
+
 import re
+from typing import Dict, List
 
 from bs4 import BeautifulSoup
 
-from normalizer import (
-    normalize_model_name,
-    parse_capabilities,
-)
 
+# ==================================================
+# 通用清洗
+# ==================================================
 
-_NUMBER = re.compile(r"([\d,]+)")
+def clean_text(value: str) -> str:
+    if not value:
+        return ""
 
-
-def _parse_number(text):
-
-    if not text:
-        return None
-
-    m = _NUMBER.search(text)
-
-    if not m:
-        return None
-
-    try:
-        return int(
-            m.group(1).replace(",", "")
-        )
-    except Exception:
-        return None
-
-
-def _find_value(soup, title):
-
-    node = soup.find(
-        string=lambda x:
-        x and title.lower() in x.lower()
+    value = value.replace(
+        "\xa0",
+        " ",
     )
 
-    if not node:
+    value = " ".join(
+        value.split()
+    )
+
+    return value.strip()
+
+
+
+# ==================================================
+# 数字解析
+# ==================================================
+
+def parse_number(
+    value: str,
+):
+    """
+    解析：
+
+    128K
+    128k tokens
+    128,000
+
+    """
+
+    if not value:
         return None
 
-    td = node.parent
 
-    if td is None:
+    value = (
+        value
+        .lower()
+        .replace(",", "")
+        .strip()
+    )
+
+
+    match = re.search(
+        r"(\d+(?:\.\d+)?)",
+        value,
+    )
+
+
+    if not match:
         return None
 
-    nxt = td.find_next()
 
-    if nxt is None:
-        return None
-
-    return nxt.get_text(" ", strip=True)
+    number = float(
+        match.group(1)
+    )
 
 
-def parse_model_detail(html):
+    if "k" in value:
+
+        number *= 1000
+
+
+    if "m" in value:
+
+        number *= 1000000
+
+
+    return int(number)
+
+
+
+# ==================================================
+# 标签提取
+# ==================================================
+
+def extract_section_values(
+    soup,
+    keywords: List[str],
+):
+
+    results = []
+
+
+    #
+    # 查找包含关键词节点
+    #
+    for node in soup.find_all(
+        string=True
+    ):
+
+        text = clean_text(
+            str(node)
+        )
+
+
+        if not text:
+            continue
+
+
+        lower = text.lower()
+
+
+        if any(
+            k.lower() in lower
+            for k in keywords
+        ):
+
+            parent = node.parent
+
+
+            if parent:
+
+                #
+                # 同级元素
+                #
+                for item in parent.find_all(
+                    [
+                        "span",
+                        "li",
+                        "div",
+                        "p",
+                    ]
+                ):
+
+                    value = clean_text(
+                        item.get_text(
+                            " ",
+                            strip=True,
+                        )
+                    )
+
+
+                    if value:
+
+                        results.append(
+                            value
+                        )
+
+
+    return list(
+        dict.fromkeys(
+            results
+        )
+    )
+
+
+
+# ==================================================
+# Capability
+# ==================================================
+
+def parse_capabilities(
+    soup,
+):
+
+    values = []
+
+
+    values.extend(
+        extract_section_values(
+            soup,
+            [
+                "Capabilities",
+                "Capability",
+                "Features",
+                "Modalities",
+            ],
+        )
+    )
+
+
+    #
+    # 全文兜底
+    #
+    text = clean_text(
+        soup.get_text(
+            " ",
+            strip=True,
+        )
+    )
+
+
+    values.append(
+        text
+    )
+
+
+    result = []
+
+
+    for value in values:
+
+        value = (
+            value
+            .replace(
+                "✓",
+                "",
+            )
+        )
+
+
+        parts = re.split(
+            r"[,|/•\n]",
+            value,
+        )
+
+
+        for part in parts:
+
+            part = clean_text(
+                part
+            )
+
+
+            if part:
+
+                result.append(
+                    part
+                )
+
+
+    return list(
+        dict.fromkeys(
+            result
+        )
+    )
+
+
+
+# ==================================================
+# Key Value 提取
+# ==================================================
+
+def find_value(
+    soup,
+    labels,
+):
+
+    for label in labels:
+
+        #
+        # 文本节点
+        #
+        node = soup.find(
+            string=re.compile(
+                label,
+                re.I,
+            )
+        )
+
+
+        if not node:
+            continue
+
+
+        parent = node.parent
+
+
+        if not parent:
+            continue
+
+
+        text = clean_text(
+            parent.get_text(
+                " ",
+                strip=True,
+            )
+        )
+
+
+        #
+        # 去掉 label
+        #
+        text = re.sub(
+            label,
+            "",
+            text,
+            flags=re.I,
+        )
+
+
+        text = clean_text(
+            text
+        )
+
+
+        if text:
+
+            return text
+
+
+        #
+        # 下一个兄弟节点
+        #
+        sibling = parent.find_next()
+
+
+        if sibling:
+
+            value = clean_text(
+                sibling.get_text(
+                    " ",
+                    strip=True,
+                )
+            )
+
+            if value:
+
+                return value
+
+
+    return ""
+
+
+
+# ==================================================
+# URL
+# ==================================================
+
+def parse_model_detail(
+    html: str,
+) -> Dict:
+
 
     soup = BeautifulSoup(
         html,
         "html.parser",
     )
 
+
     data = {}
 
-    #
-    # Model Name
-    #
 
-    h1 = soup.find("h1")
-
-    if h1:
-        data["logical_name"] = normalize_model_name(
-            h1.get_text(strip=True)
-        )
-
-    #
-    # Context Window
-    #
-
-    try:
-
-        value = _find_value(
-            soup,
-            "Context Window",
-        )
-
-        data["context_window"] = _parse_number(value)
-
-    except Exception:
-
-        data["context_window"] = None
-
-    #
-    # Max Output Tokens
-    #
-
-    try:
-
-        value = _find_value(
-            soup,
-            "Max Output Tokens",
-        )
-
-        data["max_output_tokens"] = _parse_number(value)
-
-    except Exception:
-
-        data["max_output_tokens"] = None
-
-    #
-    # Base URL
-    #
-
-    try:
-
-        data["base_url"] = _find_value(
-            soup,
-            "Base URL",
-        )
-
-    except Exception:
-
-        data["base_url"] = None
 
     #
     # Model ID
     #
-
-    try:
-
-        data["model_id"] = _find_value(
+    data["model_id"] = clean_text(
+        find_value(
             soup,
-            "Model ID",
+            [
+                "Model ID",
+                "Model",
+                "Model Name",
+            ],
         )
+    )
 
-    except Exception:
 
-        data["model_id"] = None
 
     #
-    # API format
+    # Base URL
     #
-
-    try:
-
-        data["api_format"] = _find_value(
+    data["base_url"] = clean_text(
+        find_value(
             soup,
-            "API Format",
+            [
+                "Base URL",
+                "API Base",
+                "Endpoint",
+            ],
         )
+    )
 
-    except Exception:
 
-        data["api_format"] = None
+
+    #
+    # API Format
+    #
+    data["api_format"] = clean_text(
+        find_value(
+            soup,
+            [
+                "API Format",
+                "Format",
+            ],
+        )
+    )
+
+
+
+    #
+    # Context Window
+    #
+    context = find_value(
+        soup,
+        [
+            "Context Window",
+            "Context Length",
+            "Context Size",
+        ],
+    )
+
+
+    data["context_window"] = parse_number(
+        context
+    )
+
+
+
+    #
+    # Max Output Tokens
+    #
+    output = find_value(
+        soup,
+        [
+            "Max Output Tokens",
+            "Maximum Output",
+            "Output Tokens",
+        ],
+    )
+
+
+    data["max_output_tokens"] = parse_number(
+        output
+    )
+
+
 
     #
     # Capability
     #
-
-    capabilities = []
-
-    tags = []
-
-    try:
-
-        value = _find_value(
-            soup,
-            "Capabilities",
-        )
-
-        if value:
-
-            capabilities = [
-                x.strip()
-                for x in value.split(",")
-                if x.strip()
-            ]
-
-    except Exception:
-        pass
-
-    try:
-
-        value = _find_value(
-            soup,
-            "Tags",
-        )
-
-        if value:
-
-            tags = [
-                x.strip()
-                for x in value.split(",")
-                if x.strip()
-            ]
-
-    except Exception:
-        pass
-
-    data["capability"] = parse_capabilities(
-        capabilities,
-        tags,
+    data["capabilities"] = parse_capabilities(
+        soup
     )
 
-    data["raw_capabilities"] = capabilities
 
-    data["raw_tags"] = tags
+    #
+    # Tags
+    #
+    data["tags"] = extract_section_values(
+        soup,
+        [
+            "Tags",
+            "Tag",
+        ],
+    )
+
+
+    #
+    # logical name
+    #
+    data["logical_name"] = clean_text(
+        find_value(
+            soup,
+            [
+                "Model Name",
+                "Model",
+            ],
+        )
+    )
+
+
 
     return data

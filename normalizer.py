@@ -1,131 +1,277 @@
+"""
+Model name normalizer
+
+负责：
+
+1. 品牌模型名称统一
+2. Provider 后缀清理
+3. free 标识清理
+4. 厂商 namespace 清理
+
+例如：
+
+z-ai/glm-5.2
+        |
+        v
+glm-5.2
+
+
+deepseek-ai/deepseek-v4-flash
+        |
+        v
+deepseek-v4-flash
+"""
+
+from __future__ import annotations
+
 import re
 
-from models import ModelCapability
 
 
-# 一些 Provider 会附加这些后缀
-_SUFFIXES = [
+# 厂商 namespace
+
+VENDOR_PREFIXES = {
+
+    "z-ai",
+    "zhipuai",
+    "glm",
+
+    "deepseek-ai",
+    "deepseek",
+
+    "moonshotai",
+    "moonshot",
+
+    "qwen",
+    "alibaba",
+
+    "google",
+    "gemini",
+
+    "meta",
+    "meta-llama",
+
+    "mistralai",
+
+}
+
+
+
+# 不影响语义的后缀
+
+REMOVE_SUFFIX = [
+
     ":free",
-    ":beta",
-    ":latest",
+
+    "-free",
+
+    "_free",
+
+    "(free)",
+
+    "[free]",
+
 ]
 
 
-_PROVIDER_SUFFIX = re.compile(
-    r"(__.*)$",
-    re.IGNORECASE,
-)
+
+# provider 污染
+
+PROVIDER_SUFFIX = [
+
+    "__nvidia",
+
+    "__nvidia_nim",
+
+    "__openrouter",
+
+    "__github",
+
+    "__github_models",
+
+    "__modelscope",
+
+    "__sambanova",
+
+    "__agnes",
+
+    "__kilo",
+
+]
 
 
-_MULTI_SPACE = re.compile(r"\s+")
 
+def clean_text(
+    value: str,
+) -> str:
 
-def normalize_model_name(name: str) -> str:
-    """
-    将 freellm/OpenRouter 等各种名字统一成品牌模型名称
+    if not value:
 
-    glm-5.2:free
-        ↓
-    glm-5.2
-
-    glm-5.2__github
-        ↓
-    glm-5.2
-
-    DeepSeek-V4-Flash
-        ↓
-    deepseek-v4-flash
-    """
-
-    if not name:
         return ""
 
-    name = name.strip()
+    value = value.strip()
 
-    name = _PROVIDER_SUFFIX.sub("", name)
+    value = value.lower()
 
-    for suffix in _SUFFIXES:
-        if name.lower().endswith(suffix):
-            name = name[:-len(suffix)]
+    value = value.replace(
+        " ",
+        "-",
+    )
 
-    name = name.replace("_", "-")
-
-    name = _MULTI_SPACE.sub("-", name)
-
-    name = name.strip("- ")
-
-    return name.lower()
+    return value
 
 
-def parse_capabilities(capabilities, tags):
-    """
-    freellm Capability + Tags
-    →
 
-    LiteLLM Capability
-    """
+def remove_vendor_prefix(
+    name: str,
+) -> str:
 
-    result = ModelCapability()
 
-    words = []
+    if "/" not in name:
 
-    if capabilities:
-        words.extend(capabilities)
+        return name
 
-    if tags:
-        words.extend(tags)
 
-    words = [x.lower() for x in words]
+    parts = name.split(
+        "/"
+    )
 
-    text = " ".join(words)
 
-    if "chat" in text:
-        result.chat = True
+    if len(parts) != 2:
 
-    if "vision" in text:
-        result.vision = True
+        return name
 
-    if "image" in text:
-        result.image = True
 
-    if "audio" in text:
-        result.audio = True
+    prefix, model = parts
 
-    if "embedding" in text:
-        result.embedding = True
 
-    if "rerank" in text:
-        result.rerank = True
-
-    if "reason" in text:
-        result.reasoning = True
-
-    if "thinking" in text:
-        result.reasoning = True
-
-    if "reasoning" in text:
-        result.reasoning = True
-
-    if "code" in text:
-        result.coding = True
-
-    if "coder" in text:
-        result.coding = True
-
-    if "tool" in text:
-        result.tools = True
-
-    if "function calling" in text:
-        result.tools = True
-
-    if "json" in text:
-        result.json_mode = True
-
-    # 默认都是 chat
-    if not (
-        result.embedding
-        or result.rerank
+    if (
+        prefix.lower()
+        in VENDOR_PREFIXES
     ):
-        result.chat = True
 
-    return result
+        return model
+
+
+    #
+    # 默认保留最后一段
+    #
+    return model
+
+
+
+def remove_free_tag(
+    name: str,
+) -> str:
+
+
+    for suffix in REMOVE_SUFFIX:
+
+        name = name.replace(
+            suffix,
+            "",
+        )
+
+
+    name = re.sub(
+        r"\s*\(free\)",
+        "",
+        name,
+        flags=re.I,
+    )
+
+
+    return name
+
+
+
+def remove_provider_suffix(
+    name: str,
+) -> str:
+
+
+    for suffix in PROVIDER_SUFFIX:
+
+        name = name.replace(
+            suffix,
+            "",
+        )
+
+
+    return name
+
+
+
+def normalize_model_name(
+    name: str,
+) -> str:
+
+
+    if not name:
+
+        return ""
+
+
+    name = clean_text(
+        name
+    )
+
+
+    #
+    # 去 namespace
+    #
+    name = remove_vendor_prefix(
+        name
+    )
+
+
+    #
+    # 去 provider
+    #
+    name = remove_provider_suffix(
+        name
+    )
+
+
+    #
+    # 去 free
+    #
+    name = remove_free_tag(
+        name
+    )
+
+
+    #
+    # 清理连续符号
+    #
+    name = re.sub(
+        r"[_]+",
+        "-",
+        name,
+    )
+
+
+    name = re.sub(
+        r"-+",
+        "-",
+        name,
+    )
+
+
+    return name.strip("-")
+
+
+
+def normalize_brand(
+    name: str,
+) -> str:
+
+    """
+    alias
+
+    保留兼容旧调用
+    """
+
+    return normalize_model_name(
+        name
+    )

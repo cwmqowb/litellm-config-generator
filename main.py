@@ -1,125 +1,300 @@
-"""
-把整个流程串起来：
-
-抓取 FreeLLM Top200
-过滤支持的 Provider（NVIDIA、OpenRouter、GitHub Models、ModelScope、SambaNova、Agnes、KILO）
-解析每个模型详情页
-构建 LogicalModel
-自动生成 config.yaml
-"""
 from __future__ import annotations
 
 import argparse
+import logging
+from pathlib import Path
 
-from builder import FallbackBuilder
-from config_builder import LiteLLMConfigBuilder
-from crawler import FreeLLMCrawler
-from parser import ModelParser
+
+from crawler import crawl_models
+from normalizer import normalize_model_name
+
+from builder import (
+    build_logical_models,
+    build_capability_models,
+)
+
+from config_builder import (
+    LiteLLMConfigBuilder,
+)
+
 from providers import SUPPORTED_PROVIDERS
 
 
-def main():
 
-    parser = argparse.ArgumentParser()
+OUTPUT_FILE = "config.generated.yaml"
+
+
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(levelname)s %(message)s",
+)
+
+
+
+def parse_args():
+
+    parser = argparse.ArgumentParser(
+        description=(
+            "Generate LiteLLM config "
+            "from freellm free models"
+        )
+    )
+
 
     parser.add_argument(
         "--top",
         type=int,
         default=200,
-        help="Top N models from FreeLLM",
+        help="freellm top models",
     )
+
 
     parser.add_argument(
-        "-o",
         "--output",
-        default="config.generated.yaml",
+        default=OUTPUT_FILE,
+        help="output yaml file",
     )
 
-    args = parser.parse_args()
 
-    crawler = FreeLLMCrawler()
+    return parser.parse_args()
 
-    parser_obj = ModelParser()
 
-    builder = FallbackBuilder()
 
-    config_builder = LiteLLMConfigBuilder()
+def filter_supported_models(
+    models,
+):
 
-    print("== Step1 Fetch model list ==")
+    result = []
 
-    models = crawler.fetch_top_models(args.top)
 
-    print(f"Found {len(models)} models")
-
-    models = [
-        m
-        for m in models
-        if m.provider in SUPPORTED_PROVIDERS or m.provider == "Unknown"
-    ]
-
-    print(f"Supported providers : {len(models)}")
-
-    provider_models = []
-
-    print()
-
-    print("== Step2 Parse detail pages ==")
-
-    for idx, model in enumerate(models, start=1):
-
-        print(
-            f"[{idx}/{len(models)}] "
-            f"{model.provider} "
-            f"{model.name}"
-        )
+    for model in models:
 
         try:
 
-            result = parser_obj.parse(model)
+            provider = (
+                model.get(
+                    "provider",
+                    "",
+                )
+                .strip()
+            )
 
-            if result and result.provider in SUPPORTED_PROVIDERS:
 
-                provider_models.append(result)
+            if (
+                provider
+                not in SUPPORTED_PROVIDERS
+            ):
+                continue
 
-        except Exception as e:
 
-            print(f"    FAIL {e}")
+            result.append(
+                model
+            )
 
-    print()
 
-    print("== Step3 Build fallback ==")
+        except Exception:
 
-    logical_models = builder.build(provider_models)
+            logging.exception(
+                "filter model failed"
+            )
 
-    logical_models = builder.expand_provider_keys(logical_models)
 
-    capability_map = builder.build_capability_models(logical_models)
+    return result
 
-    print(f"Logical models : {len(logical_models)}")
 
-    print()
 
-    print("== Step4 Generate LiteLLM Config ==")
+def normalize_models(
+    models,
+):
 
-    config = config_builder.build(
-        logical_models,
-        capability_map=capability_map,
+    result = []
+
+
+    for model in models:
+
+        try:
+
+            name = (
+                model.get(
+                    "logical_name"
+                )
+                or
+                model.get(
+                    "name"
+                )
+            )
+
+
+            model["logical_name"] = (
+                normalize_model_name(
+                    name
+                )
+            )
+
+
+            result.append(
+                model
+            )
+
+
+        except Exception:
+
+            logging.exception(
+                "normalize failed"
+            )
+
+
+    return result
+
+
+
+def main():
+
+
+    args = parse_args()
+
+
+
+    logging.info(
+        "Start crawling freellm top %s models",
+        args.top,
     )
 
-    config_builder.save(
+
+
+    #
+    # 1. Crawl
+    #
+    try:
+
+        models = crawl_models(
+            top_k=args.top
+        )
+
+
+    except Exception:
+
+        logging.exception(
+            "crawl failed"
+        )
+
+        return
+
+
+
+    logging.info(
+        "Crawler returned %s models",
+        len(models),
+    )
+
+
+
+    #
+    # 2. Provider filter
+    #
+    models = filter_supported_models(
+        models
+    )
+
+
+    logging.info(
+        "After provider filter: %s",
+        len(models),
+    )
+
+
+
+    #
+    # 3. Normalize brand name
+    #
+    models = normalize_models(
+        models
+    )
+
+
+
+    #
+    # 4. Build logical models
+    #
+    try:
+
+        logical_models = (
+            build_logical_models(
+                models
+            )
+        )
+
+
+    except Exception:
+
+        logging.exception(
+            "build logical models failed"
+        )
+
+        return
+
+
+
+    logging.info(
+        "Logical models: %s",
+        len(logical_models),
+    )
+
+
+
+    #
+    # 5. Capability models
+    #
+    try:
+
+        capability_models = (
+            build_capability_models(
+                logical_models
+            )
+        )
+
+
+    except Exception:
+
+        logging.exception(
+            "capability build failed"
+        )
+
+        capability_models = {}
+
+
+
+    #
+    # 6. Build LiteLLM config
+    #
+    builder = (
+        LiteLLMConfigBuilder()
+    )
+
+
+    config = builder.build(
+        logical_models,
+        capability_models,
+    )
+
+
+
+    #
+    # 7. Save
+    #
+    builder.save(
         config,
+        Path(args.output),
+    )
+
+
+
+    logging.info(
+        "Generated %s",
         args.output,
     )
 
-    print()
-
-    print("------------------------------------")
-    print("DONE")
-    print("------------------------------------")
-    print(f"Provider Models : {len(provider_models)}")
-    print(f"Logical Models  : {len(logical_models)}")
-    print(f"Capability Models: {len(capability_map)}")
-    print(f"Output          : {args.output}")
 
 
 if __name__ == "__main__":
