@@ -1,226 +1,131 @@
-"""
-加入归一化逻辑，例如：
-
-z-ai/glm-5.2
-glm-5.2
-ZAI GLM-5.2
-
-全部归并为：
-
-glm-5.2
-"""
-from __future__ import annotations
-
 import re
 
+from models import ModelCapability
 
-class LogicalModelNormalizer:
+
+# 一些 Provider 会附加这些后缀
+_SUFFIXES = [
+    ":free",
+    ":beta",
+    ":latest",
+]
+
+
+_PROVIDER_SUFFIX = re.compile(
+    r"(__.*)$",
+    re.IGNORECASE,
+)
+
+
+_MULTI_SPACE = re.compile(r"\s+")
+
+
+def normalize_model_name(name: str) -> str:
     """
-    将 Provider 的 Model ID 归一化成 Logical Model
+    将 freellm/OpenRouter 等各种名字统一成品牌模型名称
 
-    例如：
-
-    nvidia/nemotron-3-ultra-550b-a55b
-    openrouter/nvidia/nemotron-3-ultra-550b-a55b:free
-    ==> nemotron-3-ultra-550b-a55b
-
-    z-ai/glm-5.2
+    glm-5.2:free
+        ↓
     glm-5.2
-    ==> glm-5.2
 
-    Qwen/Qwen3-235B-A22B-Instruct
-    ==> qwen3-235b
+    glm-5.2__github
+        ↓
+    glm-5.2
+
+    DeepSeek-V4-Flash
+        ↓
+    deepseek-v4-flash
     """
 
-    def normalize(self, model_id: str) -> str:
+    if not name:
+        return ""
 
-        name = model_id.lower()
+    name = name.strip()
 
-        #
-        # OpenRouter
-        #
+    name = _PROVIDER_SUFFIX.sub("", name)
 
-        name = name.replace(":free", "")
-        name = name.replace(":beta", "")
+    for suffix in _SUFFIXES:
+        if name.lower().endswith(suffix):
+            name = name[:-len(suffix)]
 
-        #
-        # 去 provider 前缀
-        #
+    name = name.replace("_", "-")
 
-        prefixes = [
-            "nvidia/",
-            "google/",
-            "meta/",
-            "qwen/",
-            "moonshotai/",
-            "z-ai/",
-            "deepseek-ai/",
-            "mistralai/",
-            "cohere/",
-            "openai/",
-            "openrouter/",
-            "microsoft/",
-            "writer/",
-            "ibm/",
-            "baai/",
-            "bytedance/",
-        ]
+    name = _MULTI_SPACE.sub("-", name)
 
-        changed = True
+    name = name.strip("- ")
 
-        while changed:
+    return name.lower()
 
-            changed = False
 
-            for p in prefixes:
+def parse_capabilities(capabilities, tags):
+    """
+    freellm Capability + Tags
+    →
 
-                if name.startswith(p):
+    LiteLLM Capability
+    """
 
-                    name = name[len(p):]
+    result = ModelCapability()
 
-                    changed = True
+    words = []
 
-        #
-        # glm
-        #
+    if capabilities:
+        words.extend(capabilities)
 
-        m = re.search(
-            r"glm[-_]?([0-9.]+)",
-            name,
-        )
+    if tags:
+        words.extend(tags)
 
-        if m:
-            return f"glm-{m.group(1)}"
+    words = [x.lower() for x in words]
 
-        #
-        # gemini
-        #
+    text = " ".join(words)
 
-        m = re.search(
-            r"gemini[-_]?([0-9.]+)-(.*)",
-            name,
-        )
+    if "chat" in text:
+        result.chat = True
 
-        if m:
-            return f"gemini-{m.group(1)}-{m.group(2)}"
+    if "vision" in text:
+        result.vision = True
 
-        #
-        # qwen3
-        #
+    if "image" in text:
+        result.image = True
 
-        m = re.search(
-            r"qwen3(?:\.5)?[-_]?([0-9]+)b",
-            name,
-        )
+    if "audio" in text:
+        result.audio = True
 
-        if m:
-            return f"qwen3-{m.group(1)}b"
+    if "embedding" in text:
+        result.embedding = True
 
-        #
-        # deepseek
-        #
+    if "rerank" in text:
+        result.rerank = True
 
-        if "deepseek-v4-flash" in name:
-            return "deepseek-v4-flash"
+    if "reason" in text:
+        result.reasoning = True
 
-        if "deepseek-v4" in name:
-            return "deepseek-v4"
+    if "thinking" in text:
+        result.reasoning = True
 
-        if "deepseek-v3.2" in name:
-            return "deepseek-v3.2"
+    if "reasoning" in text:
+        result.reasoning = True
 
-        if "deepseek-v3" in name:
-            return "deepseek-v3"
+    if "code" in text:
+        result.coding = True
 
-        #
-        # kimi
-        #
+    if "coder" in text:
+        result.coding = True
 
-        if "kimi-k2.6" in name:
-            return "kimi-k2.6"
+    if "tool" in text:
+        result.tools = True
 
-        if "kimi-k2.5" in name:
-            return "kimi-k2.5"
+    if "function calling" in text:
+        result.tools = True
 
-        if "kimi-k2" in name:
-            return "kimi-k2"
+    if "json" in text:
+        result.json_mode = True
 
-        #
-        # minimax
-        #
+    # 默认都是 chat
+    if not (
+        result.embedding
+        or result.rerank
+    ):
+        result.chat = True
 
-        if "minimax-m3" in name:
-            return "minimax-m3"
-
-        if "minimax-m2.7" in name:
-            return "minimax-m2.7"
-
-        #
-        # GPT OSS
-        #
-
-        if "gpt-oss-120b" in name:
-            return "gpt-oss-120b"
-
-        if "gpt-oss-20b" in name:
-            return "gpt-oss-20b"
-
-        #
-        # Nemotron
-        #
-
-        if "nemotron" in name:
-
-            name = re.sub(
-                r"^(llama[-_]3\.[0-9][-_]?)",
-                "",
-                name,
-            )
-
-            name = name.replace(
-                "-instruct",
-                "",
-            )
-
-            return name
-
-        #
-        # Gemma
-        #
-
-        if "gemma" in name:
-
-            name = name.replace(
-                "-it",
-                "",
-            )
-
-            return name
-
-        #
-        # Llama
-        #
-
-        if "llama" in name:
-
-            name = name.replace(
-                "-instruct",
-                "",
-            )
-
-            return name
-
-        #
-        # Mistral
-        #
-
-        if "mistral" in name:
-
-            name = name.replace(
-                "-instruct",
-                "",
-            )
-
-            return name
-
-        return name
+    return result

@@ -15,33 +15,7 @@ from builder import FallbackBuilder
 from config_builder import LiteLLMConfigBuilder
 from crawler import FreeLLMCrawler
 from parser import ModelParser
-
-
-SUPPORTED_PROVIDERS = {
-    # 核心 Provider (有 API Key 配置)
-    "NVIDIA NIM",
-    "OpenRouter",
-    "GitHub Models",
-    "ModelScope",
-    "SambaNova",
-    "Agnes AI",
-    "Kilo Code",
-    # # 新增 Provider (需要配置 API Key)
-    # "Cloudflare Workers AI",
-    # "OVHcloud AI",
-    # "Groq",
-    # "Mistral AI",
-    # "Z.ai (智谱 AI)",
-    # "Cerebras",
-    # "Hugging Face",
-    # "SiliconFlow",
-    # "Chutes AI",
-    # "Cohere",
-    # "LLM7",
-    # "OpenCode",
-    # "Aion Labs",
-    # "GLHF Chat",
-}
+from providers import SUPPORTED_PROVIDERS
 
 
 def main():
@@ -80,7 +54,7 @@ def main():
     models = [
         m
         for m in models
-        if m.provider in SUPPORTED_PROVIDERS
+        if m.provider in SUPPORTED_PROVIDERS or m.provider == "Unknown"
     ]
 
     print(f"Supported providers : {len(models)}")
@@ -103,7 +77,7 @@ def main():
 
             result = parser_obj.parse(model)
 
-            if result:
+            if result and result.provider in SUPPORTED_PROVIDERS:
 
                 provider_models.append(result)
 
@@ -117,6 +91,10 @@ def main():
 
     logical_models = builder.build(provider_models)
 
+    logical_models = builder.expand_provider_keys(logical_models)
+
+    capability_map = builder.build_capability_models(logical_models)
+
     print(f"Logical models : {len(logical_models)}")
 
     print()
@@ -124,7 +102,8 @@ def main():
     print("== Step4 Generate LiteLLM Config ==")
 
     config = config_builder.build(
-        logical_models
+        logical_models,
+        capability_map=capability_map,
     )
 
     config_builder.save(
@@ -139,6 +118,7 @@ def main():
     print("------------------------------------")
     print(f"Provider Models : {len(provider_models)}")
     print(f"Logical Models  : {len(logical_models)}")
+    print(f"Capability Models: {len(capability_map)}")
     print(f"Output          : {args.output}")
 
 

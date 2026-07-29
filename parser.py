@@ -1,214 +1,207 @@
-"""
-解析每个模型详情页，提取：
-Base URL
-Model ID
-API Format
-Context Window
-Max Output Tokens
-Capabilities（chat / vision / coding / reasoning / image / embedding / audio / tools）
-转换为 ProviderModel 对象。
-"""
-from __future__ import annotations
-
 import re
-from typing import Optional
 
-import requests
 from bs4 import BeautifulSoup
 
-from models import (
-    FreeLLMModel,
-    ModelCapability,
-    ProviderModel,
+from normalizer import (
+    normalize_model_name,
+    parse_capabilities,
 )
-from providers import get_provider
 
 
-class ModelParser:
-    """
-    解析 freellm 模型详情页
-    """
+_NUMBER = re.compile(r"([\d,]+)")
 
-    def __init__(self):
 
-        self.session = requests.Session()
+def _parse_number(text):
 
-        self.session.headers.update(
-            {
-                "User-Agent": (
-                    "Mozilla/5.0 "
-                    "(Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 "
-                    "(KHTML, like Gecko) "
-                    "Chrome/138.0 Safari/537.36"
-                )
-            }
-        )
-
-    def parse(
-        self,
-        model: FreeLLMModel,
-    ) -> Optional[ProviderModel]:
-
-        provider = get_provider(model.provider)
-
-        if provider is None:
-            return None
-
-        r = self.session.get(
-            model.detail_url,
-            timeout=30,
-        )
-
-        r.raise_for_status()
-
-        soup = BeautifulSoup(
-            r.text,
-            "lxml",
-        )
-
-        page = soup.get_text(
-            "\n",
-            strip=True,
-        )
-
-        model_id = self._find_field(
-            page,
-            [
-                "Model ID",
-                "Model",
-            ],
-        )
-
-        if not model_id:
-            model_id = model.name
-
-        api_format = self._find_field(
-            page,
-            [
-                "API Format",
-            ],
-        )
-
-        if not api_format:
-            api_format = provider.api_format
-
-        context = self._to_int(
-            self._find_field(
-                page,
-                [
-                    "Context Window",
-                    "Context",
-                ],
-            )
-        )
-
-        max_output = self._to_int(
-            self._find_field(
-                page,
-                [
-                    "Max Output",
-                    "Max Tokens",
-                ],
-            )
-        )
-
-        capability = self._parse_capability(page)
-
-        logical_name = self._normalize_name(model.name)
-
-        return ProviderModel(
-            provider=model.provider,
-            logical_name=logical_name,
-            model_id=model_id,
-            api_base=provider.api_base,
-            api_format=api_format,
-            api_key_env=provider.api_key_env,
-            context_window=context,
-            max_output_tokens=max_output,
-            capability=capability,
-        )
-
-    @staticmethod
-    def _normalize_name(name: str) -> str:
-
-        return (
-            name.lower()
-            .replace(" ", "-")
-            .replace("/", "-")
-        )
-
-    @staticmethod
-    def _find_field(
-        text: str,
-        names,
-    ):
-
-        for field in names:
-
-            m = re.search(
-                rf"{re.escape(field)}\s*:?\s*(.+)",
-                text,
-                re.IGNORECASE,
-            )
-
-            if m:
-                return m.group(1).strip()
-
+    if not text:
         return None
 
-    @staticmethod
-    def _to_int(v):
+    m = _NUMBER.search(text)
 
-        if not v:
-            return None
+    if not m:
+        return None
 
-        m = re.search(
-            r"(\d[\d,]*)",
-            str(v),
-        )
-
-        if not m:
-            return None
-
+    try:
         return int(
             m.group(1).replace(",", "")
         )
+    except Exception:
+        return None
 
-    @staticmethod
-    def _parse_capability(
-        page: str,
-    ) -> ModelCapability:
 
-        p = page.lower()
+def _find_value(soup, title):
 
-        cap = ModelCapability()
+    node = soup.find(
+        string=lambda x:
+        x and title.lower() in x.lower()
+    )
 
-        if "chat" in p:
-            cap.chat = True
+    if not node:
+        return None
 
-        if "vision" in p:
-            cap.vision = True
+    td = node.parent
 
-        if "reasoning" in p:
-            cap.reasoning = True
+    if td is None:
+        return None
 
-        if "coding" in p or "code" in p:
-            cap.coding = True
+    nxt = td.find_next()
 
-        if "embedding" in p:
-            cap.embedding = True
+    if nxt is None:
+        return None
 
-        if "image" in p:
-            cap.image = True
+    return nxt.get_text(" ", strip=True)
 
-        if "audio" in p:
-            cap.audio = True
 
-        if "tool" in p:
-            cap.tools = True
+def parse_model_detail(html):
 
-        if "json" in p:
-            cap.json_mode = True
+    soup = BeautifulSoup(
+        html,
+        "html.parser",
+    )
 
-        return cap
+    data = {}
+
+    #
+    # Model Name
+    #
+
+    h1 = soup.find("h1")
+
+    if h1:
+        data["logical_name"] = normalize_model_name(
+            h1.get_text(strip=True)
+        )
+
+    #
+    # Context Window
+    #
+
+    try:
+
+        value = _find_value(
+            soup,
+            "Context Window",
+        )
+
+        data["context_window"] = _parse_number(value)
+
+    except Exception:
+
+        data["context_window"] = None
+
+    #
+    # Max Output Tokens
+    #
+
+    try:
+
+        value = _find_value(
+            soup,
+            "Max Output Tokens",
+        )
+
+        data["max_output_tokens"] = _parse_number(value)
+
+    except Exception:
+
+        data["max_output_tokens"] = None
+
+    #
+    # Base URL
+    #
+
+    try:
+
+        data["base_url"] = _find_value(
+            soup,
+            "Base URL",
+        )
+
+    except Exception:
+
+        data["base_url"] = None
+
+    #
+    # Model ID
+    #
+
+    try:
+
+        data["model_id"] = _find_value(
+            soup,
+            "Model ID",
+        )
+
+    except Exception:
+
+        data["model_id"] = None
+
+    #
+    # API format
+    #
+
+    try:
+
+        data["api_format"] = _find_value(
+            soup,
+            "API Format",
+        )
+
+    except Exception:
+
+        data["api_format"] = None
+
+    #
+    # Capability
+    #
+
+    capabilities = []
+
+    tags = []
+
+    try:
+
+        value = _find_value(
+            soup,
+            "Capabilities",
+        )
+
+        if value:
+
+            capabilities = [
+                x.strip()
+                for x in value.split(",")
+                if x.strip()
+            ]
+
+    except Exception:
+        pass
+
+    try:
+
+        value = _find_value(
+            soup,
+            "Tags",
+        )
+
+        if value:
+
+            tags = [
+                x.strip()
+                for x in value.split(",")
+                if x.strip()
+            ]
+
+    except Exception:
+        pass
+
+    data["capability"] = parse_capabilities(
+        capabilities,
+        tags,
+    )
+
+    data["raw_capabilities"] = capabilities
+
+    data["raw_tags"] = tags
+
+    return data
