@@ -1,52 +1,63 @@
 """
 crawler.py
 
-FreeLLM模型爬虫
+FreeLLM模型列表爬虫
 
 
 职责:
 
-获取模型列表数据
+1. 请求 freellm 模型列表页面
+
+2. 解码 HTML entity
+
+3. 提取页面中的模型 JSON
+
+4. 输出原始模型 dict
 
 
-流程:
+输出:
 
-crawler
-    |
-    v
+List[dict]
+
+
+后续:
+
 parser.py
     |
-    v
-List[dict]
-    |
-    v
 normalizer.py
     |
-    v
 List[ModelInfo]
 
 
 禁止:
 
 ProviderModel
-primary_model
-providers
+LogicalModel
 """
 
 
 from __future__ import annotations
 
 
+import html
+
+import json
+
 import logging
+
+import re
+
+
+from typing import Any, Dict, List
+
+
 
 import requests
 
 
-from typing import Any, Dict, List, Optional
-
-
 
 logger = logging.getLogger(__name__)
+
 
 
 
@@ -64,10 +75,6 @@ DEFAULT_URL = (
 
 
 
-DEFAULT_TIMEOUT = 20
-
-
-
 HEADERS = {
 
 
@@ -81,9 +88,14 @@ HEADERS = {
 
 
 
+TIMEOUT = 30
+
+
+
+
 
 # ============================================================
-# Request
+# HTTP
 # ============================================================
 
 
@@ -91,10 +103,8 @@ def fetch_page(
     url: str = DEFAULT_URL
 ) -> str:
     """
-    获取网页内容
+    获取网页
     """
-
-
 
     try:
 
@@ -105,7 +115,7 @@ def fetch_page(
 
             headers=HEADERS,
 
-            timeout=DEFAULT_TIMEOUT
+            timeout=TIMEOUT
 
         )
 
@@ -123,7 +133,7 @@ def fetch_page(
 
         logger.error(
 
-            "fetch page failed: %s",
+            "fetch freellm failed: %s",
 
             e
 
@@ -137,64 +147,164 @@ def fetch_page(
 
 
 # ============================================================
-# JSON extraction
+# Decode
 # ============================================================
 
 
-def extract_models_from_json(
+def decode_html(
+    content: str
+) -> str:
+    """
+    HTML entity解码
+
+
+    示例:
+
+    &#34;models&#34;
+
+        |
+
+        v
+
+    "models"
+
+    """
+
+    return html.unescape(
+        content
+    )
+
+
+
+
+
+# ============================================================
+# Extract JSON
+# ============================================================
+
+
+def extract_json_objects(
+    source: str
+) -> List[Any]:
+    """
+    提取页面script中的JSON
+
+    """
+
+    result = []
+
+
+
+    scripts = re.findall(
+
+        r"<script[^>]*>(.*?)</script>",
+
+        source,
+
+        re.S
+
+    )
+
+
+
+    for script in scripts:
+
+
+        text = script.strip()
+
+
+
+        if not text:
+
+            continue
+
+
+
+        # 尝试完整JSON
+
+        if (
+
+            text.startswith("{")
+
+            or
+
+            text.startswith("[")
+
+        ):
+
+
+            try:
+
+
+                result.append(
+
+                    json.loads(
+
+                        text
+
+                    )
+
+                )
+
+
+            except Exception:
+
+
+                pass
+
+
+
+        # 查找包含models片段
+
+        for match in re.finditer(
+
+            r'\{.*?"models"\s*:\s*\[.*?\].*?\}',
+
+            text,
+
+            re.S
+
+        ):
+
+
+            try:
+
+
+                result.append(
+
+                    json.loads(
+
+                        match.group()
+
+                    )
+
+                )
+
+
+            except Exception:
+
+
+                pass
+
+
+
+    return result
+
+
+
+
+
+# ============================================================
+# Find models
+# ============================================================
+
+
+def find_models(
     data: Any
 ) -> List[Dict]:
 
 
-    """
-    从网页JSON中寻找模型列表
-
-
-    支持:
-
-    models
-
-    data
-
-    items
-
-    results
-
-    """
-
-
-
-    if not data:
-
-        return []
-
-
-
-    if isinstance(
-
-        data,
-
-        list
-
-    ):
-
-
-        if all(
-
-            isinstance(
-
-                x,
-
-                dict
-
-            )
-
-            for x in data
-
-        ):
-
-            return data
-
+    result = []
 
 
 
@@ -207,158 +317,186 @@ def extract_models_from_json(
     ):
 
 
-        for key in [
 
-            "models",
-
-            "items",
-
-            "data",
-
-            "results",
-
-        ]:
+        for key, value in data.items():
 
 
-            value = data.get(
 
-                key
+            if key.lower() == "models":
+
+
+
+                if isinstance(
+
+                    value,
+
+                    list
+
+                ):
+
+
+                    result.extend(
+
+                        [
+
+                            x
+
+                            for x in value
+
+                            if isinstance(
+
+                                x,
+
+                                dict
+
+                            )
+
+                        ]
+
+                    )
+
+
+
+
+            else:
+
+
+                result.extend(
+
+                    find_models(
+
+                        value
+
+                    )
+
+                )
+
+
+
+
+    elif isinstance(
+
+        data,
+
+        list
+
+    ):
+
+
+        for item in data:
+
+
+            result.extend(
+
+                find_models(
+
+                    item
+
+                )
 
             )
 
 
 
-            if isinstance(
-
-                value,
-
-                list
-
-            ):
-
-
-                return value
-
-
-
-
-        for value in data.values():
-
-
-            result = extract_models_from_json(
-
-                value
-
-            )
-
-
-
-            if result:
-
-                return result
-
-
-
-    return []
+    return result
 
 
 
 
 
 # ============================================================
-# HTML parser
+# Model normalize
 # ============================================================
 
 
-def parse_html_models(
-    html: str
-) -> List[Dict]:
+def normalize_raw_model(
+    item: Dict
+) -> Dict:
 
 
-    """
-    解析HTML
+    model_id = (
 
+        item.get(
 
-    当前FreeLLM使用Next.js
+            "id"
 
+        )
 
-    __NEXT_DATA__
+        or
 
-    """
+        item.get(
 
+            "model"
 
+        )
 
-    if not html:
+        or
 
-        return []
+        ""
 
-
-
-    import json
-
-
-
-    from bs4 import BeautifulSoup
+    )
 
 
 
-    try:
+    name = (
+
+        item.get(
+
+            "name"
+
+        )
+
+        or
+
+        model_id
+
+    )
 
 
-        soup = BeautifulSoup(
 
-            html,
+    provider = ""
 
-            "html.parser"
+
+
+    if "/" in model_id:
+
+
+        provider = (
+
+            model_id
+
+            .split("/")[0]
 
         )
 
 
 
-        node = soup.find(
-
-            "script",
-
-            id="__NEXT_DATA__"
-
-        )
+    return {
 
 
+        "name":
 
-        if not node:
-
-            return []
+            name,
 
 
 
-        data = json.loads(
+        "model_id":
 
-            node.string
-
-        )
+            model_id,
 
 
 
-        return extract_models_from_json(
+        "provider":
 
-            data
-
-        )
+            provider,
 
 
 
-    except Exception:
+        "metadata":
 
+            item,
 
-        logger.exception(
-
-            "parse html models failed"
-
-        )
-
-
-
-        return []
+    }
 
 
 
@@ -370,8 +508,7 @@ def parse_html_models(
 
 
 def crawl_models(
-    top_k: int = 200,
-    url: Optional[str] = None
+    top_k: int = 200
 ) -> List[Dict]:
     """
     主入口
@@ -381,20 +518,7 @@ def crawl_models(
 
     List[dict]
 
-
     """
-
-
-
-    target_url = (
-
-        url
-
-        or
-
-        DEFAULT_URL
-
-    )
 
 
 
@@ -402,32 +526,55 @@ def crawl_models(
 
         "crawl models from %s",
 
-        target_url
+        DEFAULT_URL
 
     )
 
 
 
-    html = fetch_page(
-
-        target_url
-
-    )
+    page = fetch_page()
 
 
 
-    if not html:
+    if not page:
 
 
         return []
 
 
 
-    models = parse_html_models(
+    decoded = decode_html(
 
-        html
+        page
 
     )
+
+
+
+    json_objects = extract_json_objects(
+
+        decoded
+
+    )
+
+
+
+    models = []
+
+
+
+    for obj in json_objects:
+
+
+        models.extend(
+
+            find_models(
+
+                obj
+
+            )
+
+        )
 
 
 
@@ -436,7 +583,7 @@ def crawl_models(
 
         logger.warning(
 
-            "no models extracted"
+            "no json models found"
 
         )
 
@@ -445,16 +592,73 @@ def crawl_models(
 
 
 
+    result = []
 
-    # 排序和截取
 
-    result = models[:top_k]
+
+    seen = set()
+
+
+
+    for item in models:
+
+
+        model = normalize_raw_model(
+
+            item
+
+        )
+
+
+
+        model_id = model.get(
+
+            "model_id"
+
+        )
+
+
+
+        if not model_id:
+
+
+            continue
+
+
+
+        if model_id in seen:
+
+
+            continue
+
+
+
+        seen.add(
+
+            model_id
+
+        )
+
+
+
+        result.append(
+
+            model
+
+        )
+
+
+
+        if len(result) >= top_k:
+
+
+            break
 
 
 
     logger.info(
 
-        "crawler found %s models",
+        "crawler result: %s",
 
         len(result)
 

@@ -1,30 +1,32 @@
 """
 providers.py
 
-Provider统一定义
+Provider基础配置
 
 
-作用:
+职责:
 
-维护模型Provider基础信息
+维护 Provider 的连接信息
 
 
 不负责:
 
-- ProviderModel
 - 模型聚合
+- 逻辑模型
 - fallback
-- logical model
+- ProviderModel
 
 
-架构:
+数据流:
 
 ProviderInfo
       |
       v
-ModelInfo.provider
+ModelInfo.api_base / api_key_env
+      |
+      v
+LiteLLM config
 """
-
 
 from __future__ import annotations
 
@@ -32,6 +34,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from typing import Dict, Optional
+
+
 
 
 
@@ -46,17 +50,13 @@ class ProviderInfo:
     API Provider信息
     """
 
-
     name: str
-
 
 
     api_base: Optional[str] = None
 
 
-
     api_key_env: Optional[str] = None
-
 
 
     api_format: str = "openai"
@@ -68,10 +68,10 @@ class ProviderInfo:
 
 
     metadata: Dict = field(
-
         default_factory=dict
-
     )
+
+
 
 
 
@@ -80,88 +80,109 @@ class ProviderInfo:
 # ============================================================
 
 
-SUPPORTED_PROVIDERS = {
-
-
-    "NVIDIA NIM": ProviderInfo(
-
-        name="NVIDIA NIM",
-
-        api_base="https://integrate.api.nvidia.com/v1",
-
-        api_key_env="NVIDIA_API_KEY",
-
-    ),
+PROVIDER_REGISTRY: Dict[str, ProviderInfo] = {
 
 
 
-    "OpenRouter": ProviderInfo(
+    "nvidia": ProviderInfo(
 
-        name="OpenRouter",
+        name="nvidia",
 
-        api_base="https://openrouter.ai/api/v1",
+        api_base=
+        "https://integrate.api.nvidia.com/v1",
 
-        api_key_env="OPENROUTER_API_KEY",
+        api_key_env=
+        "NVIDIA_API_KEY",
 
     ),
 
 
 
-    "GitHub Models": ProviderInfo(
 
-        name="GitHub Models",
+    "openrouter": ProviderInfo(
 
-        api_base="https://models.inference.ai.azure.com",
+        name="openrouter",
 
-        api_key_env="GITHUB_MODELS_API_KEY",
+        api_base=
+        "https://openrouter.ai/api/v1",
 
-    ),
-
-
-
-    "ModelScope": ProviderInfo(
-
-        name="ModelScope",
-
-        api_base="https://api-inference.modelscope.cn/v1",
-
-        api_key_env="MODELSCOPE_API_KEY",
+        api_key_env=
+        "OPENROUTER_API_KEY",
 
     ),
 
 
 
-    "SambaNova": ProviderInfo(
 
-        name="SambaNova",
+    "openai": ProviderInfo(
 
-        api_base="https://api.sambanova.ai/v1",
+        name="openai",
 
-        api_key_env="SAMBANOVA_API_KEY",
+        api_base=
+        "https://api.openai.com/v1",
 
-    ),
-
-
-
-    "Agnes AI": ProviderInfo(
-
-        name="Agnes AI",
-
-        api_base="https://api.agnes-ai.com/v1",
-
-        api_key_env="AGNES_API_KEY",
+        api_key_env=
+        "OPENAI_API_KEY",
 
     ),
 
 
 
-    "Kilo Code": ProviderInfo(
 
-        name="Kilo Code",
+    "github": ProviderInfo(
 
-        api_base="",
+        name="github",
 
-        api_key_env="KILO_API_KEY",
+        api_base=
+        "https://models.inference.ai.azure.com",
+
+        api_key_env=
+        "GITHUB_MODELS_API_KEY",
+
+    ),
+
+
+
+
+    "modelscope": ProviderInfo(
+
+        name="modelscope",
+
+        api_base=
+        "https://api-inference.modelscope.cn/v1",
+
+        api_key_env=
+        "MODELSCOPE_API_KEY",
+
+    ),
+
+
+
+
+    "sambanova": ProviderInfo(
+
+        name="sambanova",
+
+        api_base=
+        "https://api.sambanova.ai/v1",
+
+        api_key_env=
+        "SAMBANOVA_API_KEY",
+
+    ),
+
+
+
+
+    "agnes": ProviderInfo(
+
+        name="agnes",
+
+        api_base=
+        "https://api.agnes-ai.com/v1",
+
+        api_key_env=
+        "AGNES_API_KEY",
 
     ),
 
@@ -171,9 +192,76 @@ SUPPORTED_PROVIDERS = {
 
 
 
+
+
 # ============================================================
 # helpers
 # ============================================================
+
+
+def normalize_provider_name(
+    name: str
+) -> str:
+    """
+    provider标准化
+    """
+
+    if not name:
+
+        return ""
+
+
+
+    value = (
+
+        name
+
+       .lower()
+
+       .strip()
+
+    )
+
+
+
+    aliases = {
+
+
+        "nvidia nim":
+
+            "nvidia",
+
+
+        "github models":
+
+            "github",
+
+
+        "model scope":
+
+            "modelscope",
+
+
+        "samba nova":
+
+            "sambanova",
+
+
+        "agnes ai":
+
+            "agnes",
+
+    }
+
+
+
+    return aliases.get(
+        value,
+        value
+    )
+
+
+
 
 
 def get_provider(
@@ -183,19 +271,31 @@ def get_provider(
     获取Provider配置
     """
 
-
-    if not name:
-
-        return None
-
+    key = normalize_provider_name(
+        name
+    )
 
 
-    for key, value in SUPPORTED_PROVIDERS.items():
+    return PROVIDER_REGISTRY.get(
+        key
+    )
 
 
-        if key.lower() == name.lower():
 
-            return value
+
+
+def get_api_base(
+    provider: str
+) -> Optional[str]:
+
+    info = get_provider(
+        provider
+    )
+
+
+    if info:
+
+        return info.api_base
 
 
 
@@ -205,61 +305,18 @@ def get_provider(
 
 
 
-def is_supported_provider(
-    name: str
-) -> bool:
-
-
-    return (
-        get_provider(
-            name
-        )
-        is not None
-    )
-
-
-
-
-
-def get_provider_api_base(
-    name: str
+def get_api_key_env(
+    provider: str
 ) -> Optional[str]:
 
-
-    provider = get_provider(
-
-        name
-
+    info = get_provider(
+        provider
     )
 
 
-    if provider:
+    if info:
 
-        return provider.api_base
-
-
-
-    return None
-
-
-
-
-
-def get_provider_key_env(
-    name: str
-) -> Optional[str]:
-
-
-    provider = get_provider(
-
-        name
-
-    )
-
-
-    if provider:
-
-        return provider.api_key_env
+        return info.api_key_env
 
 
 

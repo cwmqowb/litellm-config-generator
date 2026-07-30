@@ -1,36 +1,48 @@
 """
 detail_parser.py
 
-FreeLLM模型详情页解析
+FreeLLM模型详情解析器
+
+
+职责:
+
+补充模型详情信息:
+
+- provider
+- api_base
+- api_key_env
+- capability
+- score
+- metadata
 
 
 输入:
 
-HTML detail page
+crawler/parser产生的模型dict
 
 
 输出:
 
-dict
+List[dict]
 
-后续由 normalizer.py 转换:
 
-dict
- |
- v
-ModelInfo
+后续:
+
+normalizer.py
+
+List[ModelInfo]
 
 
 禁止:
 
 ProviderModel
-primary_model
-providers
+LogicalModel
 """
-
 
 from __future__ import annotations
 
+
+import html
 
 import json
 
@@ -43,218 +55,37 @@ from typing import Any, Dict, List
 
 
 
-from bs4 import BeautifulSoup
-
-
 
 logger = logging.getLogger(__name__)
 
 
 
 
-# ============================================================
-# utils
-# ============================================================
-
-
-def clean_text(
-    value: Any
-) -> str:
-
-
-    if value is None:
-
-        return ""
-
-
-    return re.sub(
-
-        r"\s+",
-
-        " ",
-
-        str(value)
-
-    ).strip()
-
-
-
-
-def remove_copy_suffix(
-    value: str
-) -> str:
-
-
-    if not value:
-
-        return value
-
-
-
-    return re.sub(
-
-        r"\s+Copy$",
-
-        "",
-
-        value,
-
-        flags=re.I
-
-    ).strip()
-
-
-
 
 # ============================================================
-# next data
+# Capability Detect
 # ============================================================
 
 
-def extract_next_data(
-    html: str
-):
-
-
-    try:
-
-
-        soup = BeautifulSoup(
-
-            html,
-
-            "html.parser"
-
-        )
-
-
-
-        node = soup.find(
-
-            "script",
-
-            id="__NEXT_DATA__"
-
-        )
-
-
-
-        if not node:
-
-            return {}
-
-
-
-        if not node.string:
-
-            return {}
-
-
-
-        return json.loads(
-
-            node.string
-
-        )
-
-
-
-    except Exception:
-
-
-        return {}
-
-
-
-
-
-# ============================================================
-# recursive json search
-# ============================================================
-
-
-def find_json_value(
-    data,
-    keys: List[str]
-):
-
-
-    if isinstance(data, dict):
-
-
-        for key, value in data.items():
-
-
-            if key.lower() in [
-
-                x.lower()
-
-                for x in keys
-
-            ]:
-
-                return value
-
-
-
-            result = find_json_value(
-
-                value,
-
-                keys
-
-            )
-
-
-            if result is not None:
-
-                return result
-
-
-
-    elif isinstance(data, list):
-
-
-        for item in data:
-
-
-            result = find_json_value(
-
-                item,
-
-                keys
-
-            )
-
-
-            if result is not None:
-
-                return result
-
-
-
-    return None
-
-
-
-
-# ============================================================
-# capability
-# ============================================================
-
-
-def parse_capabilities(
-    text: str
+def detect_capability(
+    model_id: str,
+    name: str = ""
 ) -> List[str]:
+    """
+    根据模型名称判断能力
 
 
-    if not text:
-
-        return []
+    """
 
 
 
-    text = text.lower()
+    text = (
+
+        f"{model_id} {name}"
+
+        .lower()
+
+    )
 
 
 
@@ -262,135 +93,132 @@ def parse_capabilities(
 
 
 
-    rules = {
+    if any(
+        x in text
+        for x in [
+
+            "embed",
+
+            "embedding",
+
+        ]
+    ):
 
 
-        "chat":
-
-        [
-
-            "chat",
-
-            "instruction",
-
-            "conversation",
-
-        ],
+        result.append(
+            "embedding"
+        )
 
 
 
-        "vision":
-
-        [
+    if any(
+        x in text
+        for x in [
 
             "vision",
 
+            "-vl",
+
+            "vl-",
+
             "multimodal",
 
-            "image input",
+            "image",
 
-        ],
+        ]
+    ):
 
 
-
-        "reasoning":
-
-        [
-
-            "reasoning",
-
-            "thinking",
-
-            "cot",
-
-        ],
+        result.append(
+            "vision"
+        )
 
 
 
-        "coding":
+    if any(
+        x in text
+        for x in [
 
-        [
+            "rerank",
 
-            "coding",
+        ]
+    ):
+
+
+        result.append(
+            "rerank"
+        )
+
+
+
+    if any(
+        x in text
+        for x in [
 
             "coder",
 
             "code",
 
-        ],
+            "coding",
+
+        ]
+    ):
+
+
+        result.append(
+            "coding"
+        )
 
 
 
-        "embedding":
+    if any(
+        x in text
+        for x in [
 
-        [
+            "reasoning",
 
-            "embedding",
+            "think",
 
-        ],
+            "r1",
 
-
-
-        "rerank":
-
-        [
-
-            "rerank",
-
-        ],
+        ]
+    ):
 
 
-
-        "tool_calling":
-
-        [
-
-            "tool",
-
-            "function calling",
-
-        ],
+        result.append(
+            "reasoning"
+        )
 
 
 
-        "json_mode":
+    if not result:
 
-        [
 
-            "json",
+        result.append(
+            "chat"
+        )
 
-            "structured",
 
-        ],
 
-    }
+    return result
 
 
 
 
-    for name, words in rules.items():
+
+# ============================================================
+# JSON extraction
+# ============================================================
 
 
-        for word in words:
+def decode_html(
+    content: str
+) -> str:
 
 
-            if word in text:
+    return html.unescape(
 
-
-                result.append(
-
-                    name
-
-                )
-
-                break
-
-
-
-
-    return sorted(
-
-        list(set(result))
+        content
 
     )
 
@@ -398,453 +226,245 @@ def parse_capabilities(
 
 
 
-# ============================================================
-# number
-# ============================================================
-
-
-def normalize_number(
-    value
-):
-
-
-    if value is None:
-
-        return None
-
-
-
-    try:
-
-
-        value = str(value)
-
-        value = value.upper()
-
-        value = value.replace(
-
-            ",",
-
-            ""
-
-        )
-
-
-
-        if value.endswith("K"):
-
-
-            return int(
-
-                float(
-
-                    value[:-1]
-
-                )
-
-                * 1024
-
-            )
-
-
-
-        if value.endswith("M"):
-
-
-            return int(
-
-                float(
-
-                    value[:-1]
-
-                )
-
-                * 1024
-
-                * 1024
-
-            )
-
-
-
-        return int(
-
-            float(value)
-
-        )
-
-
-
-    except Exception:
-
-
-        return None
-
-
-
-
-# ============================================================
-# main parser
-# ============================================================
-
-
-def parse_model_detail(
-    html: str
+def extract_provider_info(
+    source: str
 ) -> Dict[str, Any]:
+    """
+    提取页面provider信息
 
 
-    result = {
+    freellm:
+
+    providers:
+
+        xxx:
+
+            baseUrl
+
+            verifiedProtocols
+
+    """
 
 
-        "name":
 
-            "",
-
-
-        "model_id":
-
-            "",
+    result = {}
 
 
-        "provider":
 
-            "",
+    source = decode_html(
 
+        source
+
+    )
+
+
+
+    patterns = {
 
 
         "api_base":
 
-            "",
-
-
-
-        "api_format":
-
-            "",
-
-
-
-        "api_key_env":
-
-            "",
-
-
-
-        "capabilities":
-
-            [],
-
-
-
-        "context_window":
-
-            None,
-
-
-
-        "max_output_tokens":
-
-            None,
-
-
-
-        "free":
-
-            False,
+            r'"baseUrl"\s*:\s*"([^"]+)"',
 
 
 
         "score":
 
-            0,
-
-
-
-        "metadata":
-
-            {},
+            r'"score"\s*:\s*([0-9.]+)',
 
 
     }
 
 
 
-    if not html:
-
-        return result
+    for key, pattern in patterns.items():
 
 
+        match = re.search(
 
+            pattern,
 
-    try:
-
-
-        soup = BeautifulSoup(
-
-            html,
-
-            "html.parser"
+            source
 
         )
 
 
 
-        page_text = clean_text(
+        if match:
 
-            soup.get_text(
 
-                " ",
-
-                strip=True
-
-            )
-
-        )
+            result[key] = match.group(1)
 
 
 
-        data = extract_next_data(
-
-            html
-
-        )
+    return result
 
 
 
-        # ----------------------------
-        # model id
-        # ----------------------------
 
 
-        model_id = find_json_value(
+# ============================================================
+# Detail merge
+# ============================================================
 
-            data,
 
-            [
-
-                "model",
-
-                "modelId",
-
-                "model_id",
-
-            ]
-
-        )
+def enrich_model(
+    model: Dict[str, Any]
+) -> Dict[str, Any]:
+    """
+    补充模型详情
+    """
 
 
 
-        if model_id:
+    model_id = model.get(
+
+        "model_id",
+
+        ""
+
+    )
 
 
-            model_id = remove_copy_suffix(
+    name = model.get(
 
-                clean_text(
+        "name",
 
-                    model_id
+        ""
+
+    )
+
+
+
+    capability = detect_capability(
+
+        model_id,
+
+        name
+
+    )
+
+
+
+    metadata = model.get(
+
+        "metadata",
+
+        {}
+
+    )
+
+
+
+    detail = {
+
+
+
+        "capability":
+
+            capability,
+
+
+
+        "score":
+
+            model.get(
+
+                "score",
+
+                0
+
+            ),
+
+
+
+        "api_base":
+
+            model.get(
+
+                "api_base"
+
+            ),
+
+
+
+        "api_key_env":
+
+            model.get(
+
+                "api_key_env"
+
+            ),
+
+
+
+        "metadata":
+
+            metadata,
+
+    }
+
+
+
+    model.update(
+
+        detail
+
+    )
+
+
+
+    return model
+
+
+
+
+
+# ============================================================
+# Public API
+# ============================================================
+
+
+def parse_details(
+    models: List[Dict]
+) -> List[Dict]:
+    """
+    批量详情解析
+    """
+
+
+
+    result = []
+
+
+
+    for model in models:
+
+
+        try:
+
+
+            result.append(
+
+                enrich_model(
+
+                    model
 
                 )
 
             )
 
 
-            result["model_id"] = model_id
+        except Exception:
 
 
-            result["name"] = (
+            logger.exception(
 
-                model_id.split("/")[-1]
+                "detail parse failed: %s",
 
-            )
-
-
-
-        # ----------------------------
-        # api
-        # ----------------------------
-
-
-        base_url = find_json_value(
-
-            data,
-
-            [
-
-                "baseUrl",
-
-                "base_url",
-
-                "endpoint",
-
-            ]
-
-        )
-
-
-
-        if base_url:
-
-
-            result["api_base"] = (
-
-                remove_copy_suffix(
-
-                    clean_text(
-
-                        base_url
-
-                    )
-
-                )
+                model
 
             )
-
-
-
-
-        api_format = find_json_value(
-
-            data,
-
-            [
-
-                "apiFormat",
-
-                "api_format",
-
-                "protocol",
-
-            ]
-
-        )
-
-
-
-        if api_format:
-
-
-            result["api_format"] = (
-
-                clean_text(
-
-                    api_format
-
-                )
-
-            )
-
-
-
-        # ----------------------------
-        # context
-        # ----------------------------
-
-
-        context = find_json_value(
-
-            data,
-
-            [
-
-                "contextWindow",
-
-                "context_window",
-
-                "contextLength",
-
-            ]
-
-        )
-
-
-
-        if context:
-
-
-            result["context_window"] = (
-
-                normalize_number(
-
-                    context
-
-                )
-
-            )
-
-
-
-
-        output = find_json_value(
-
-            data,
-
-            [
-
-                "maxOutputTokens",
-
-                "max_output_tokens",
-
-                "maxTokens",
-
-            ]
-
-        )
-
-
-
-        if output:
-
-
-            result["max_output_tokens"] = (
-
-                normalize_number(
-
-                    output
-
-                )
-
-            )
-
-
-
-
-        # ----------------------------
-        # capability
-        # ----------------------------
-
-
-        result["capabilities"] = (
-
-            parse_capabilities(
-
-                page_text
-
-            )
-
-        )
-
-
-
-        result["metadata"] = {
-
-
-            "source":
-
-                "freellm",
-
-
-        }
-
-
-
-    except Exception:
-
-
-        logger.exception(
-
-            "parse detail failed"
-
-        )
 
 
 

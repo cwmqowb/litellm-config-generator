@@ -4,9 +4,16 @@ parser.py
 模型列表解析器
 
 
+职责:
+
+将 crawler 输出的原始 dict
+
+转换为标准模型字典
+
+
 输入:
 
-crawler 获取的模型列表数据
+List[dict]
 
 
 输出:
@@ -14,22 +21,20 @@ crawler 获取的模型列表数据
 List[dict]
 
 
-后续:
+下一步:
 
 normalizer.py
 
 List[dict]
-        |
-        v
+    |
+    v
 List[ModelInfo]
 
 
 禁止:
 
 ProviderModel
-primary_model
-providers
-provider_model
+LogicalModel
 """
 
 
@@ -38,7 +43,9 @@ from __future__ import annotations
 
 import logging
 
+
 from typing import Any, Dict, List
+
 
 
 
@@ -47,13 +54,14 @@ logger = logging.getLogger(__name__)
 
 
 
+
 # ============================================================
-# helpers
+# Utils
 # ============================================================
 
 
 def get_value(
-    data: Dict,
+    data: Dict[str, Any],
     keys: List[str],
     default=None
 ):
@@ -74,12 +82,13 @@ def get_value(
 
 
 
+
 def normalize_provider(
-    value: Any
+    provider: str
 ) -> str:
 
 
-    if not value:
+    if not provider:
 
         return ""
 
@@ -87,9 +96,11 @@ def normalize_provider(
 
     return (
 
-        str(value)
+        str(provider)
 
         .strip()
+
+        .lower()
 
     )
 
@@ -98,7 +109,7 @@ def normalize_provider(
 
 
 # ============================================================
-# single parser
+# Parse single model
 # ============================================================
 
 
@@ -106,9 +117,7 @@ def parse_model(
     item: Dict[str, Any]
 ) -> Dict[str, Any]:
     """
-    单个模型记录解析
-
-    dict -> 标准dict
+    单模型解析
     """
 
 
@@ -121,11 +130,9 @@ def parse_model(
 
             "model_id",
 
-            "model",
-
             "id",
 
-            "name",
+            "model",
 
         ],
 
@@ -142,10 +149,6 @@ def parse_model(
         [
 
             "name",
-
-            "model",
-
-            "id",
 
         ],
 
@@ -165,10 +168,6 @@ def parse_model(
 
                 "provider",
 
-                "organization",
-
-                "vendor",
-
             ],
 
             ""
@@ -179,8 +178,8 @@ def parse_model(
 
 
 
-
     result = {
+
 
 
         "name":
@@ -212,8 +211,6 @@ def parse_model(
                     "api_base",
 
                     "base_url",
-
-                    "endpoint",
 
                 ]
 
@@ -247,15 +244,16 @@ def parse_model(
 
                     "api_format",
 
-                    "format",
+                ],
 
-                ]
+                "openai"
 
             ),
 
 
 
-        "capabilities":
+
+        "capability":
 
             get_value(
 
@@ -263,15 +261,16 @@ def parse_model(
 
                 [
 
-                    "capabilities",
-
                     "capability",
+
+                    "capabilities",
 
                 ],
 
                 []
 
             ),
+
 
 
 
@@ -285,11 +284,12 @@ def parse_model(
 
                     "context_window",
 
-                    "context_length",
+                    "context",
 
                 ]
 
             ),
+
 
 
 
@@ -311,29 +311,6 @@ def parse_model(
 
 
 
-        "free":
-
-            bool(
-
-                get_value(
-
-                    item,
-
-                    [
-
-                        "free",
-
-                        "is_free",
-
-                    ],
-
-                    False
-
-                )
-
-            ),
-
-
 
         "score":
 
@@ -347,8 +324,6 @@ def parse_model(
 
                         "score",
 
-                        "ranking",
-
                     ],
 
                     0
@@ -361,9 +336,45 @@ def parse_model(
 
 
 
+
+        "free":
+
+            bool(
+
+                get_value(
+
+                    item,
+
+                    [
+
+                        "free",
+
+                    ],
+
+                    True
+
+                )
+
+            ),
+
+
+
+
         "metadata":
 
-            item,
+            get_value(
+
+                item,
+
+                [
+
+                    "metadata",
+
+                ],
+
+                item
+
+            ),
 
     }
 
@@ -376,91 +387,13 @@ def parse_model(
 
 
 # ============================================================
-# list parser
+# Parse list
 # ============================================================
 
 
 def parse_models(
-    data: Any
-) -> List[Dict[str, Any]]:
-    """
-    批量解析
-
-
-    支持:
-
-    [
-        {}
-    ]
-
-
-    或:
-
-    {
-        "models":[]
-    }
-
-    """
-
-
-
-    if not data:
-
-        return []
-
-
-
-    if isinstance(
-
-        data,
-
-        dict
-
-    ):
-
-
-        models = (
-
-            data.get(
-
-                "models"
-
-            )
-
-            or
-
-            data.get(
-
-                "data"
-
-            )
-
-            or
-
-            []
-
-        )
-
-
-
-    elif isinstance(
-
-        data,
-
-        list
-
-    ):
-
-
-        models = data
-
-
-
-    else:
-
-
-        return []
-
+    models: List[Dict]
+) -> List[Dict]:
 
 
     result = []
@@ -477,6 +410,7 @@ def parse_models(
             dict
 
         ):
+
 
             continue
 
@@ -517,20 +451,19 @@ def parse_models(
 
 
 # ============================================================
-# compatibility entry
+# Public API
 # ============================================================
 
 
 def parse(
-    data: Any
-) -> List[Dict[str, Any]]:
+    models: List[Dict]
+) -> List[Dict]:
     """
-    主入口
-
+    parser入口
     """
 
     return parse_models(
 
-        data
+        models
 
     )

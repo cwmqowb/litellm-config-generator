@@ -1,95 +1,135 @@
 """
 models.py
 
-统一模型数据结构
+核心数据模型定义
+
 
 架构:
 
-crawler/parser/detail_parser
-            |
-            v
-        ModelInfo
-            |
-            v
-    LogicalModel.models
-            |
-            v
-      LiteLLM config.yaml
+ModelInfo
+    |
+    v
+LogicalModel.models
+    |
+    v
+LiteLLM config
+
+
+禁止:
+
+ProviderModel
+primary_model
+providers
+provider_models
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, asdict
-from typing import Dict, List, Optional
+
+from dataclasses import dataclass, field
+
+from typing import Any, Dict, List, Optional
+
 
 
 # ============================================================
 # Capability
 # ============================================================
 
+
 @dataclass
 class ModelCapability:
     """
-    模型能力
+    模型能力标签
     """
 
+
     chat: bool = False
+
     vision: bool = False
+
     reasoning: bool = False
+
     coding: bool = False
+
     embedding: bool = False
+
     rerank: bool = False
+
     image: bool = False
+
     audio: bool = False
+
     tool_calling: bool = False
+
     json_mode: bool = False
+
+
 
     raw: List[str] = field(
         default_factory=list
     )
 
 
+
+    def primary_type(self) -> str:
+        """
+        返回主要能力类型
+        """
+
+        if self.embedding:
+
+            return "embedding"
+
+
+        if self.rerank:
+
+            return "rerank"
+
+
+
+        if self.vision:
+
+            return "vision"
+
+
+
+        if self.coding:
+
+            return "coding"
+
+
+
+        if self.reasoning:
+
+            return "reasoning"
+
+
+
+        return "chat"
+
+
+
+
+
 # ============================================================
 # Pricing
 # ============================================================
 
+
 @dataclass
 class ModelPricing:
-    """
-    模型价格信息
-    """
+
 
     input_price: Optional[float] = None
 
+
     output_price: Optional[float] = None
 
-    currency: str = "USD"
 
-    free: bool = False
-
-    note: Optional[str] = None
+    free: bool = True
 
 
-
-# ============================================================
-# Availability
-# ============================================================
-
-@dataclass
-class ModelAvailability:
-    """
-    模型可用性状态
-    """
-
-    network_ok: bool = False
-
-    auth_ok: bool = False
-
-    model_available: bool = False
-
-    tested: bool = False
-
-    error: Optional[str] = None
 
 
 
@@ -97,40 +137,34 @@ class ModelAvailability:
 # ModelInfo
 # ============================================================
 
+
 @dataclass
 class ModelInfo:
     """
-    单个实际模型
+    单个真实模型
+
 
     示例:
 
-    NVIDIA
-        nvidia/glm-5
+    nvidia/nemotron-3-ultra-550b-a55b:free
 
-    ModelScope
-        deepseek-ai/DeepSeek-V3
     """
 
 
-    # ----------------------------
-    # 基础信息
-    # ----------------------------
 
     name: str
-
-
-    logical_name: str
-
-
-    provider: str
 
 
     model_id: str
 
 
-    # ----------------------------
-    # API信息
-    # ----------------------------
+    provider: str
+
+
+
+    logical_name: str = ""
+
+
 
     api_base: Optional[str] = None
 
@@ -138,35 +172,26 @@ class ModelInfo:
     api_key_env: Optional[str] = None
 
 
-    api_format: Optional[str] = None
+    api_format: str = "openai"
 
 
 
-    # ----------------------------
-    # 能力
-    # ----------------------------
-
-    capabilities: ModelCapability = field(
+    capability: ModelCapability = field(
         default_factory=ModelCapability
     )
 
 
-    # ----------------------------
-    # 上下文
-    # ----------------------------
 
     context_window: Optional[int] = None
+
 
 
     max_output_tokens: Optional[int] = None
 
 
 
-    # ----------------------------
-    # 免费/价格
-    # ----------------------------
+    free: bool = True
 
-    free: bool = False
 
 
     pricing: ModelPricing = field(
@@ -175,154 +200,21 @@ class ModelInfo:
 
 
 
-    # ----------------------------
-    # 状态
-    # ----------------------------
-
-    availability: ModelAvailability = field(
-        default_factory=ModelAvailability
-    )
+    score: float = 0.0
 
 
-
-    # ----------------------------
-    # 排序
-    # ----------------------------
-
-    score: float = 0
-
-
-    priority: int = 0
-
-
-
-    # ----------------------------
-    # 扩展
-    # ----------------------------
 
     tags: List[str] = field(
         default_factory=list
     )
 
 
-    metadata: Dict = field(
+
+    metadata: Dict[str, Any] = field(
         default_factory=dict
     )
 
 
-    # ========================================================
-    # methods
-    # ========================================================
-
-    def to_dict(self):
-
-        return asdict(self)
-
-
-
-    def add_tag(
-        self,
-        tag: str
-    ):
-
-        if tag not in self.tags:
-            self.tags.append(tag)
-
-
-
-    def add_capability(
-        self,
-        capability: str
-    ):
-
-        capability = (
-            capability
-            .lower()
-            .strip()
-        )
-
-
-        if capability not in self.capabilities.raw:
-            self.capabilities.raw.append(
-                capability
-            )
-
-
-        mapping = {
-
-            "chat":
-                "chat",
-
-            "conversation":
-                "chat",
-
-            "vision":
-                "vision",
-
-            "image":
-                "vision",
-
-            "multimodal":
-                "vision",
-
-            "reasoning":
-                "reasoning",
-
-            "thinking":
-                "reasoning",
-
-            "coder":
-                "coding",
-
-            "coding":
-                "coding",
-
-            "embedding":
-                "embedding",
-
-            "rerank":
-                "rerank",
-
-            "tool":
-                "tool_calling",
-
-            "function calling":
-                "tool_calling",
-
-            "json":
-                "json_mode",
-
-        }
-
-
-        field_name = mapping.get(
-            capability
-        )
-
-
-        if field_name:
-
-            setattr(
-                self.capabilities,
-                field_name,
-                True
-            )
-
-
-
-    def is_chat_model(self):
-
-        return (
-            self.capabilities.chat
-            or
-            not any(
-                [
-                    self.capabilities.embedding,
-                    self.capabilities.rerank,
-                    self.capabilities.image,
-                ]
-            )
-        )
 
 
 
@@ -330,25 +222,37 @@ class ModelInfo:
 # LogicalModel
 # ============================================================
 
+
 @dataclass
 class LogicalModel:
     """
-    LiteLLM逻辑模型
+    逻辑模型
+
+
+    一个逻辑入口对应多个真实模型
+
 
     示例:
 
-    smart-chat
 
-        |
-        +-- qwen3 NVIDIA
+    LogicalModel(chat)
 
-        +-- glm-5 ModelScope
 
-        +-- deepseek SambaNova
+        models:
+
+            nvidia/nemotron
+
+            openai/gpt-oss
+
+            deepseek
+
+
     """
 
 
+
     logical_name: str
+
 
 
     models: List[ModelInfo] = field(
@@ -356,39 +260,5 @@ class LogicalModel:
     )
 
 
-    strategy: str = "fallback"
 
-
-
-    description: Optional[str] = None
-
-
-
-    def add_model(
-        self,
-        model: ModelInfo
-    ):
-
-        self.models.append(
-            model
-        )
-
-
-
-    def sort_models(self):
-
-        self.models.sort(
-            key=lambda x:
-                x.score,
-            reverse=True
-        )
-
-
-
-    def get_model_ids(self):
-
-        return [
-            model.model_id
-            for model in self.models
-            if model.model_id
-        ]
+    strategy: str = "simple-shuffle"

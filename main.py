@@ -1,7 +1,7 @@
 """
 main.py
 
-LiteLLM Config Generator
+LiteLLM Config Generator 主入口
 
 
 完整流程:
@@ -9,10 +9,10 @@ LiteLLM Config Generator
 crawler
     |
     v
-parser/detail_parser
+parser
     |
     v
-raw model dict
+detail_parser
     |
     v
 normalizer
@@ -21,10 +21,10 @@ normalizer
 List[ModelInfo]
     |
     v
-ModelBuilder
+builder
     |
     v
-LogicalModel.models
+List[LogicalModel]
     |
     v
 config_builder
@@ -37,10 +37,8 @@ config.generated.yaml
 
 ProviderModel
 primary_model
-providers
 FallbackBuilder
 """
-
 
 from __future__ import annotations
 
@@ -49,37 +47,32 @@ import argparse
 
 import logging
 
-from pathlib import Path
 
 
-from crawler import (
-    crawl_models,
-)
+from crawler import crawl_models
 
 
-from normalizer import (
-    normalize_models,
-)
+from parser import parse
 
 
-from builder import (
-    ModelBuilder,
-)
+from detail_parser import parse_details
 
 
-from config_builder import (
-    build_config,
-)
+from normalizer import normalize_models
+
+
+from builder import build
+
+
+from config_builder import write_config
+
+
 
 
 
 # ============================================================
-# config
+# Logging
 # ============================================================
-
-
-OUTPUT_FILE = "config.generated.yaml"
-
 
 
 logging.basicConfig(
@@ -96,19 +89,23 @@ logger = logging.getLogger(__name__)
 
 
 
+
+
 # ============================================================
-# args
+# Main
 # ============================================================
 
 
-def parse_args():
+def main():
+
 
     parser = argparse.ArgumentParser(
 
         description=
-        "Generate LiteLLM config"
+        "Generate LiteLLM config from FreeLLM models"
 
     )
+
 
 
     parser.add_argument(
@@ -117,10 +114,9 @@ def parse_args():
 
         type=int,
 
-        default=200,
+        default=50,
 
-        help=
-        "number of models"
+        help="number of models"
 
     )
 
@@ -130,27 +126,23 @@ def parse_args():
 
         "--output",
 
-        default=OUTPUT_FILE,
+        default="config.generated.yaml",
 
-        help=
-        "yaml output file"
+        help="output yaml file"
 
     )
 
 
-    return parser.parse_args()
+
+    args = parser.parse_args()
 
 
 
-# ============================================================
-# main
-# ============================================================
 
 
-def main():
-
-    args = parse_args()
-
+    # --------------------------------------------------------
+    # 1. crawler
+    # --------------------------------------------------------
 
 
     logger.info(
@@ -161,11 +153,6 @@ def main():
 
     )
 
-
-
-    # --------------------------------------------------------
-    # 1. crawler
-    # --------------------------------------------------------
 
 
     raw_models = crawl_models(
@@ -199,14 +186,66 @@ def main():
 
 
 
+
+
     # --------------------------------------------------------
-    # 2. normalize
+    # 2. parser
+    # --------------------------------------------------------
+
+
+    parsed_models = parse(
+
+        raw_models
+
+    )
+
+
+
+    logger.info(
+
+        "parser result: %s",
+
+        len(parsed_models)
+
+    )
+
+
+
+
+
+    # --------------------------------------------------------
+    # 3. detail parser
+    # --------------------------------------------------------
+
+
+    detail_models = parse_details(
+
+        parsed_models
+
+    )
+
+
+
+    logger.info(
+
+        "detail parser result: %s",
+
+        len(detail_models)
+
+    )
+
+
+
+
+
+    # --------------------------------------------------------
+    # 4. normalizer
     # --------------------------------------------------------
 
 
     model_infos = normalize_models(
 
-        raw_models
+        detail_models
 
     )
 
@@ -227,7 +266,7 @@ def main():
 
         logger.error(
 
-            "no valid ModelInfo"
+            "no ModelInfo generated"
 
         )
 
@@ -235,26 +274,16 @@ def main():
 
 
 
+
+
     # --------------------------------------------------------
-    # 3. build LogicalModel
+    # 5. builder
     # --------------------------------------------------------
 
 
-    builder = ModelBuilder()
-
-
-
-    result = builder.build(
+    logical_models = build(
 
         model_infos
-
-    )
-
-
-
-    logical_models = list(
-
-        result.logical_models.values()
 
     )
 
@@ -270,25 +299,31 @@ def main():
 
 
 
+    for logical in logical_models:
+
+
+        logger.info(
+
+            "logical model %s -> %s",
+
+            logical.logical_name,
+
+            len(logical.models)
+
+        )
+
+
+
+
+
     # --------------------------------------------------------
-    # 4. build LiteLLM config
+    # 6. config
     # --------------------------------------------------------
 
 
-    config = build_config(
+    write_config(
 
-        logical_models
-
-    )
-
-
-
-    # --------------------------------------------------------
-    # 5. save yaml
-    # --------------------------------------------------------
-
-
-    output = Path(
+        logical_models,
 
         args.output
 
@@ -296,50 +331,19 @@ def main():
 
 
 
-    import yaml
-
-
-
-    with open(
-
-        output,
-
-        "w",
-
-        encoding="utf-8"
-
-    ) as f:
-
-
-        yaml.safe_dump(
-
-            config,
-
-            f,
-
-            allow_unicode=True,
-
-            sort_keys=False
-
-        )
-
-
-
     logger.info(
 
-        "generated: %s",
+        "finished: %s",
 
-        output
+        args.output
 
     )
 
 
 
-# ============================================================
-# entry
-# ============================================================
 
 
 if __name__ == "__main__":
+
 
     main()

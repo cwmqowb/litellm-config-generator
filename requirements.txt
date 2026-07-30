@@ -2,37 +2,35 @@
 # LiteLLM Config Generator
 # ============================================================
 
-# HTTP client
+
+# HTTP requests
 requests>=2.32.0
 
 
-# HTML parser
+
+# HTML parsing
 beautifulsoup4>=4.12.3
 
 
-# YAML generator
+
+# YAML generation
 PyYAML>=6.0.2
 
 
-# Environment variables
+
+# Environment variables support
 python-dotenv>=1.0.1
 
 
-# Data model / typing support
+
+# Type compatibility
 typing-extensions>=4.12.0
 
 
 
 # ============================================================
-# Optional: async crawler support
+# Optional development tools
 # ============================================================
 
-aiohttp>=3.10.0
-
-
-
-# ============================================================
-# Optional: testing
-# ============================================================
 
 pytest>=8.0.0

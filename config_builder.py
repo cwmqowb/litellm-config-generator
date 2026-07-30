@@ -9,21 +9,14 @@ LiteLLM config.yaml生成器
 List[LogicalModel]
 
 
-结构:
-
-LogicalModel
-      |
-      +-- ModelInfo
-              |
-              +-- provider
-              +-- model_id
-              +-- api_base
-              +-- api_key_env
-
-
 输出:
 
-LiteLLM config.yaml
+config.generated.yaml
+
+
+结构:
+
+LogicalModel.models
 
 
 禁止:
@@ -38,10 +31,18 @@ mode
 from __future__ import annotations
 
 
+import logging
+
+
+from pathlib import Path
+
+
 from typing import Any, Dict, List
 
 
+
 import yaml
+
 
 
 from models import (
@@ -51,83 +52,36 @@ from models import (
 
 
 
-# ============================================================
-# LiteLLM model name
-# ============================================================
+logger = logging.getLogger(__name__)
 
 
-def build_litellm_model_name(
-    model: ModelInfo
-) -> str:
-    """
-    生成 LiteLLM provider/model 格式
-    """
-
-    model_id = (
-        model.model_id
-        or
-        model.name
-    )
-
-
-    if "/" in model_id:
-
-        return model_id
-
-
-
-    provider = (
-        model.provider
-        .lower()
-        .replace(
-            " ",
-            ""
-        )
-    )
-
-
-    if provider:
-
-        return (
-            provider
-            +
-            "/"
-            +
-            model_id
-        )
-
-
-    return model_id
 
 
 
 # ============================================================
-# Deployment
+# LiteLLM item
 # ============================================================
 
 
 def build_model_entry(
-    logical_model: LogicalModel,
+    logical_name: str,
     model: ModelInfo
 ) -> Dict[str, Any]:
     """
-    单个 LiteLLM deployment
+    单个LiteLLM model_list节点
     """
-
-
-
-    litellm_model = (
-        build_litellm_model_name(
-            model
-        )
-    )
 
 
 
     params = {
 
+
+
         "model":
-            litellm_model
+
+            model.model_id,
+
+
 
     }
 
@@ -136,9 +90,7 @@ def build_model_entry(
     if model.api_base:
 
 
-        params["api_base"] = (
-            model.api_base
-        )
+        params["api_base"] = model.api_base
 
 
 
@@ -147,9 +99,7 @@ def build_model_entry(
 
         params["api_key"] = (
 
-            "os.environ/"
-            +
-            model.api_key_env
+            f"os.environ/{model.api_key_env}"
 
         )
 
@@ -157,76 +107,49 @@ def build_model_entry(
 
     return {
 
+
         "model_name":
-            logical_model.logical_name,
+
+            logical_name,
+
 
 
         "litellm_params":
+
             params,
 
 
-        "metadata":
-        {
+
+        "metadata": {
+
 
             "provider":
+
                 model.provider,
 
 
+
             "model_id":
+
                 model.model_id,
 
 
+
             "score":
-                model.score
+
+                model.score,
+
+
+
+            "capability":
+
+                model.capability.raw,
 
         }
 
     }
 
 
-
-# ============================================================
-# LogicalModel
-# ============================================================
-
-
-def build_logical_model_entries(
-    logical_model: LogicalModel
-) -> List[Dict[str, Any]]:
-    """
-    LogicalModel.models
-
-        |
-
-        v
-
-    LiteLLM model_list
-
-    """
-
-
-    entries = []
-
-
-
-    for model in logical_model.models:
-
-
-        entries.append(
-
-            build_model_entry(
-
-                logical_model,
-
-                model
-
-            )
-
-        )
-
-
-
-    return entries
 
 
 
@@ -239,7 +162,7 @@ def build_config(
     logical_models: List[LogicalModel]
 ) -> Dict[str, Any]:
     """
-    生成完整 LiteLLM 配置
+    生成LiteLLM配置对象
     """
 
 
@@ -251,17 +174,26 @@ def build_config(
     for logical_model in logical_models:
 
 
-        for entry in build_logical_model_entries(
-            logical_model
-        ):
+
+        for model in logical_model.models:
+
 
             model_list.append(
-                entry
+
+                build_model_entry(
+
+                    logical_model.logical_name,
+
+                    model
+
+                )
+
             )
 
 
 
     return {
+
 
 
         "model_list":
@@ -270,58 +202,80 @@ def build_config(
 
 
 
-        "router_settings":
-        {
+        "router_settings": {
+
 
             "routing_strategy":
+
                 "simple-shuffle",
 
 
+
             "enable_pre_call_checks":
-                True
+
+                True,
+
 
         },
 
 
 
-        "litellm_settings":
-        {
+        "litellm_settings": {
+
 
             "drop_params":
-                True
 
-        }
+                True,
+
+
+        },
+
 
     }
 
 
 
+
+
 # ============================================================
-# Save
+# Write YAML
 # ============================================================
 
 
-def save_config(
+def write_config(
     logical_models: List[LogicalModel],
     output_file: str = "config.generated.yaml"
 ):
+    """
+    写入yaml
+    """
+
 
 
     config = build_config(
+
         logical_models
+
     )
 
 
 
-    with open(
+    path = Path(
 
-        output_file,
+        output_file
+
+    )
+
+
+
+    with path.open(
 
         "w",
 
         encoding="utf-8"
 
     ) as f:
+
 
 
         yaml.safe_dump(
@@ -338,4 +292,14 @@ def save_config(
 
 
 
-    return output_file
+    logger.info(
+
+        "generated config: %s",
+
+        path
+
+    )
+
+
+
+    return path

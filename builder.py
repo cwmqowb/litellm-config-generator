@@ -1,25 +1,36 @@
 """
 builder.py
 
-Logical Model Builder
+逻辑模型构建器
 
 
-输入:
+职责:
 
 List[ModelInfo]
 
+        |
 
-输出:
+        v
 
-Dict[str, LogicalModel]
+List[LogicalModel]
 
 
-架构:
+设计:
 
-ModelInfo
-    |
-    v
-LogicalModel.models
+按照模型能力生成逻辑入口:
+
+
+chat
+
+vision
+
+embedding
+
+rerank
+
+coding
+
+reasoning
 
 
 禁止:
@@ -27,15 +38,18 @@ LogicalModel.models
 ProviderModel
 primary_model
 providers
-FallbackBuilder
+provider_models
 """
+
 
 from __future__ import annotations
 
 
-from dataclasses import dataclass, field
+import logging
+
 
 from typing import Dict, List
+
 
 
 from models import (
@@ -45,190 +59,212 @@ from models import (
 
 
 
-# ============================================================
-# Build Result
-# ============================================================
+logger = logging.getLogger(__name__)
 
 
-@dataclass
-class BuildResult:
-
-    logical_models: Dict[str, LogicalModel] = field(
-        default_factory=dict
-    )
 
 
 
 # ============================================================
-# Builder
+# Capability mapping
 # ============================================================
 
 
-class ModelBuilder:
+CAPABILITY_PRIORITY = [
+
+    "chat",
+
+    "reasoning",
+
+    "coding",
+
+    "vision",
+
+    "embedding",
+
+    "rerank",
+
+]
+
+
+
+
+
+def get_logical_name(
+    model: ModelInfo
+) -> str:
     """
-    ModelInfo -> LogicalModel
+    根据能力生成逻辑模型名称
     """
 
 
 
-    def build(
-        self,
-        models: List[ModelInfo],
-    ) -> BuildResult:
-        """
-        构建逻辑模型
-        """
+    capability = model.capability
 
 
-        groups = self.group_models(
-            models
+
+    if capability.embedding:
+
+        return "embedding"
+
+
+
+    if capability.rerank:
+
+        return "rerank"
+
+
+
+    if capability.vision:
+
+        return "vision"
+
+
+
+    if capability.coding:
+
+        return "coding"
+
+
+
+    if capability.reasoning:
+
+        return "reasoning"
+
+
+
+    return "chat"
+
+
+
+
+
+# ============================================================
+# Build
+# ============================================================
+
+
+def build_logical_models(
+    models: List[ModelInfo]
+) -> List[LogicalModel]:
+    """
+    构建逻辑模型
+
+
+    示例:
+
+
+    chat
+
+        |
+
+        + model A
+
+        + model B
+
+
+
+    vision
+
+        |
+
+        + model C
+
+    """
+
+
+
+    groups: Dict[str,List[ModelInfo]] = {}
+
+
+
+    for model in models:
+
+
+        logical_name = get_logical_name(
+
+            model
+
         )
 
 
-        result = {}
+
+        model.logical_name = logical_name
 
 
 
-        for logical_name, items in groups.items():
+        if logical_name not in groups:
 
 
-            items.sort(
-                key=lambda x:
-                    x.score,
-                reverse=True
-            )
+            groups[logical_name] = []
 
 
 
-            logical_model = LogicalModel(
+        groups[logical_name].append(
 
-                logical_name=logical_name,
+            model
+
+        )
+
+
+
+    result = []
+
+
+
+    for name, items in groups.items():
+
+
+        # 高分优先
+
+        items.sort(
+
+            key=lambda x:
+
+                x.score,
+
+            reverse=True
+
+        )
+
+
+
+        result.append(
+
+            LogicalModel(
+
+                logical_name=name,
 
                 models=items,
 
-                strategy="fallback"
+                strategy="simple-shuffle",
 
             )
-
-
-
-            result[logical_name] = logical_model
-
-
-
-        return BuildResult(
-
-            logical_models=result
 
         )
 
 
 
-    # ========================================================
-    # group
-    # ========================================================
-
-
-    def group_models(
-        self,
-        models: List[ModelInfo]
-    ) -> Dict[str, List[ModelInfo]]:
-
-
-        groups = {}
+    return result
 
 
 
-        for model in models:
 
 
-            logical_name = (
-                self.get_logical_name(
-                    model
-                )
-            )
+# ============================================================
+# Compatibility-free entry
+# ============================================================
 
 
-            if logical_name not in groups:
+def build(
+    models: List[ModelInfo]
+) -> List[LogicalModel]:
+    """
+    Public API
+    """
 
-                groups[logical_name] = []
+    return build_logical_models(
 
+        models
 
-
-            groups[logical_name].append(
-                model
-            )
-
-
-
-        return groups
-
-
-
-    # ========================================================
-    # logical name
-    # ========================================================
-
-
-    def get_logical_name(
-        self,
-        model: ModelInfo
-    ) -> str:
-        """
-        生成逻辑模型名称
-
-
-        优先:
-
-        ModelInfo.logical_name
-
-
-        其次:
-
-        根据能力分类
-
-        """
-
-
-
-        if model.logical_name:
-
-            return model.logical_name
-
-
-
-        capability = model.capabilities
-
-
-
-        if capability.vision:
-
-            return "vision"
-
-
-
-        if capability.reasoning:
-
-            return "reasoning"
-
-
-
-        if capability.coding:
-
-            return "coding"
-
-
-
-        if capability.embedding:
-
-            return "embedding"
-
-
-
-        if capability.rerank:
-
-            return "rerank"
-
-
-
-        return "chat"
+    )

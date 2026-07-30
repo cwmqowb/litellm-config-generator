@@ -1,14 +1,14 @@
 """
 normalizer.py
 
-模型数据标准化
+模型标准化
+
+
+职责:
 
 输入:
 
-crawler/parser/detail_parser
-        |
-        v
-dict
+parser/detail_parser输出的dict
 
 
 输出:
@@ -16,20 +16,31 @@ dict
 List[ModelInfo]
 
 
+核心:
+
+dict
+    |
+    v
+ModelInfo
+
+
 禁止:
 
 ProviderModel
 primary_model
 providers
-provider_model
+provider_models
 """
+
 
 from __future__ import annotations
 
+
 import logging
-import re
+
 
 from typing import Any, Dict, List
+
 
 
 from models import (
@@ -39,299 +50,172 @@ from models import (
 )
 
 
+
+from providers import (
+    get_api_base,
+    get_api_key_env,
+    normalize_provider_name,
+)
+
+
+
 logger = logging.getLogger(__name__)
 
 
 
-# ============================================================
-# text utils
-# ============================================================
-
-
-def clean_text(
-    value: Any
-) -> str:
-
-    if value is None:
-        return ""
-
-    return (
-        str(value)
-        .strip()
-    )
-
-
-
-def normalize_name(
-    name: str
-) -> str:
-
-    if not name:
-        return "unknown"
-
-    name = (
-        name
-        .lower()
-        .strip()
-    )
-
-    name = re.sub(
-        r"\s+",
-        "-",
-        name
-    )
-
-    return name
-
 
 
 # ============================================================
-# logical name
+# Capability
 # ============================================================
 
 
-def build_logical_name(
-    model_id: str,
-    name: str
-) -> str:
-    """
-    根据模型名称生成逻辑模型名称
-
-    示例:
-
-    qwen3-235b
-        ->
-    qwen
-
-    deepseek-v3
-        ->
-    deepseek
-    """
-
-    source = (
-        model_id
-        or
-        name
-        or
-        "unknown"
-    ).lower()
-
-
-
-    keywords = [
-
-        "qwen",
-
-        "deepseek",
-
-        "kimi",
-
-        "glm",
-
-        "chatglm",
-
-        "llama",
-
-        "gemma",
-
-        "mistral",
-
-        "nemotron",
-
-        "mixtral",
-
-    ]
-
-
-    for keyword in keywords:
-
-        if keyword in source:
-
-            return keyword
-
-
-
-    return (
-        source
-        .replace(
-            "/",
-            "-"
-        )
-        .split("-")[0]
-    )
-
-
-
-# ============================================================
-# capability parser
-# ============================================================
-
-
-def parse_capabilities(
-    data: Dict
+def build_capability(
+    values: Any
 ) -> ModelCapability:
+    """
+    构造能力对象
+    """
+
+
 
     capability = ModelCapability()
 
 
 
-    values = []
-
-
-    raw = (
-        data.get(
-            "capabilities"
-        )
-        or
-        data.get(
-            "capability"
-        )
-        or
-        []
-    )
-
-
-
     if isinstance(
-        raw,
+
+        values,
+
         str
+
     ):
 
-        values.append(
-            raw
-        )
+
+        values = [
+
+            values
+
+        ]
 
 
-    elif isinstance(
-        raw,
+
+    if not isinstance(
+
+        values,
+
         list
+
     ):
 
-        values.extend(
-            raw
-        )
 
-
-    text = (
-        " "
-        .join(
-            [
-                str(x)
-                for x in values
-            ]
-        )
-        .lower()
-    )
+        values = []
 
 
 
-    rules = {
+    normalized = [
 
-        "chat":
-            [
-                "chat",
-                "conversation",
-                "instruction",
-            ],
+        str(x).lower()
 
+        for x in values
 
-        "vision":
-            [
-                "vision",
-                "image",
-                "multimodal",
-            ],
-
-
-        "reasoning":
-            [
-                "reasoning",
-                "thinking",
-                "cot",
-            ],
-
-
-        "coding":
-            [
-                "code",
-                "coder",
-                "coding",
-            ],
-
-
-        "embedding":
-            [
-                "embedding",
-            ],
-
-
-        "rerank":
-            [
-                "rerank",
-            ],
-
-
-        "image":
-            [
-                "image generation",
-                "diffusion",
-            ],
-
-
-        "audio":
-            [
-                "audio",
-                "speech",
-            ],
-
-
-        "tool_calling":
-            [
-                "tool",
-                "function calling",
-            ],
-
-
-        "json_mode":
-            [
-                "json",
-                "structured",
-            ],
-
-    }
+    ]
 
 
 
-    for field_name, words in rules.items():
-
-        for word in words:
-
-            if word in text:
-
-                setattr(
-                    capability,
-                    field_name,
-                    True
-                )
-
-                break
+    capability.raw = normalized
 
 
 
-    capability.raw = values
+    for item in normalized:
+
+
+        if item == "chat":
+
+            capability.chat = True
+
+
+
+        elif item == "vision":
+
+            capability.vision = True
+
+
+
+        elif item == "reasoning":
+
+            capability.reasoning = True
+
+
+
+        elif item == "coding":
+
+            capability.coding = True
+
+
+
+        elif item == "embedding":
+
+            capability.embedding = True
+
+
+
+        elif item == "rerank":
+
+            capability.rerank = True
+
+
+
+        elif item == "image":
+
+            capability.image = True
+
+
+
+        elif item == "audio":
+
+            capability.audio = True
+
+
+
+        elif item in (
+
+            "tool",
+
+            "tool_calling"
+
+        ):
+
+            capability.tool_calling = True
+
+
+
+        elif item == "json":
+
+            capability.json_mode = True
+
+
+
+
+    if not normalized:
+
+        capability.chat = True
+
 
 
     return capability
 
 
 
+
+
 # ============================================================
-# single normalize
+# Normalize
 # ============================================================
 
 
 def normalize_model(
-    item: Dict
+    data: Dict[str, Any]
 ) -> ModelInfo:
     """
     dict -> ModelInfo
@@ -339,227 +223,311 @@ def normalize_model(
 
 
 
-    name = (
-        item.get(
-            "name"
-        )
-        or
-        item.get(
-            "model"
-        )
-        or
-        item.get(
-            "model_id"
-        )
-        or
-        "unknown"
-    )
-
-
     model_id = (
-        item.get(
+
+        data.get(
+
             "model_id"
+
         )
-        or
-        item.get(
-            "model"
-        )
-        or
-        name
+
+        or ""
+
     )
 
 
 
-    provider = (
-        item.get(
+    name = (
+
+        data.get(
+
+            "name"
+
+        )
+
+        or model_id
+
+    )
+
+
+
+    provider = normalize_provider_name(
+
+        data.get(
+
             "provider"
+
         )
-        or
-        ""
+
+        or ""
+
     )
 
 
 
-    logical_name = (
-        item.get(
-            "logical_name"
+    if not provider and "/" in model_id:
+
+
+        provider = (
+
+            model_id
+
+            .split("/")[0]
+
         )
-        or
-        build_logical_name(
-            model_id,
-            name
+
+
+
+    capability = build_capability(
+
+        data.get(
+
+            "capability"
+
         )
+
     )
 
 
 
-    model = ModelInfo(
+    api_base = (
 
-        name=normalize_name(
-            name
-        ),
+        data.get(
 
-        logical_name=logical_name,
+            "api_base"
 
-        provider=provider,
+        )
+
+        or
+
+        get_api_base(
+
+            provider
+
+        )
+
+    )
+
+
+
+    api_key_env = (
+
+        data.get(
+
+            "api_key_env"
+
+        )
+
+        or
+
+        get_api_key_env(
+
+            provider
+
+        )
+
+    )
+
+
+
+    score = float(
+
+        data.get(
+
+            "score",
+
+            0
+
+        )
+
+        or 0
+
+    )
+
+
+
+    pricing = ModelPricing(
+
+        free=
+
+            bool(
+
+                data.get(
+
+                    "free",
+
+                    True
+
+                )
+
+            )
+
+    )
+
+
+
+
+
+    return ModelInfo(
+
+        name=name,
+
 
         model_id=model_id,
 
 
-        api_base=(
-            item.get(
-                "api_base"
-            )
-            or
-            item.get(
-                "base_url"
-            )
-        ),
-
-
-        api_key_env=(
-            item.get(
-                "api_key_env"
-            )
-        ),
-
-
-        api_format=(
-            item.get(
-                "api_format"
-            )
-        ),
+        provider=provider,
 
 
 
-        capabilities=parse_capabilities(
-            item
-        ),
+        api_base=api_base,
+
+
+        api_key_env=api_key_env,
 
 
 
-        context_window=(
-            item.get(
+        api_format=
+
+            data.get(
+
+                "api_format",
+
+                "openai"
+
+            ),
+
+
+
+        capability=capability,
+
+
+
+        context_window=
+
+            data.get(
+
                 "context_window"
-            )
-        ),
+
+            ),
 
 
-        max_output_tokens=(
-            item.get(
+
+        max_output_tokens=
+
+            data.get(
+
                 "max_output_tokens"
-            )
-        ),
 
-
-
-        free=(
-            item.get(
-                "free",
-                False
-            )
-        ),
-
-
-
-        pricing=ModelPricing(
-
-            input_price=(
-                item.get(
-                    "input_price"
-                )
             ),
 
-            output_price=(
-                item.get(
-                    "output_price"
-                )
+
+
+        free=
+
+            pricing.free,
+
+
+
+        pricing=pricing,
+
+
+
+        score=score,
+
+
+
+        metadata=
+
+            data.get(
+
+                "metadata",
+
+                {}
+
             ),
-
-            free=(
-                item.get(
-                    "free",
-                    False
-                )
-            )
-
-        ),
-
-
-
-        score=float(
-
-            item.get(
-                "score",
-                0
-            )
-
-            or
-
-            0
-
-        ),
-
-
-
-        tags=(
-            item.get(
-                "tags"
-            )
-            or
-            []
-        ),
-
-
-
-        metadata=item,
 
     )
 
 
 
-    return model
-
 
 
 # ============================================================
-# batch normalize
+# Public API
 # ============================================================
 
 
 def normalize_models(
-    models: List[Dict]
+    models: List[Dict[str, Any]]
 ) -> List[ModelInfo]:
     """
-    List[dict]
-
-        |
-
-        v
-
-    List[ModelInfo]
+    批量标准化
     """
+
+
 
     result = []
 
 
 
+    seen = set()
+
+
+
     for item in models:
+
 
         try:
 
-            result.append(
-                normalize_model(
-                    item
-                )
+
+            model = normalize_model(
+
+                item
+
             )
+
+
+
+            if not model.model_id:
+
+
+                continue
+
+
+
+            if model.model_id in seen:
+
+
+                continue
+
+
+
+            seen.add(
+
+                model.model_id
+
+            )
+
+
+
+            result.append(
+
+                model
+
+            )
+
 
 
         except Exception:
 
+
             logger.exception(
-                "normalize model failed: %s",
+
+                "normalize failed: %s",
+
                 item
+
             )
 
 
