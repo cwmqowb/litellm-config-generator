@@ -1,90 +1,94 @@
-from __future__ import annotations
+"""
+builder.py
 
-import logging
+Logical Model Builder
+
+输入:
+
+    List[ModelInfo]
+
+
+输出:
+
+    BuildResult
+
+其中:
+
+    logical_models:
+        Dict[str, LogicalModel]
+
+
+当前架构:
+
+ModelInfo
+    |
+    |
+    v
+
+LogicalModel
+
+    name
+
+    models: List[ModelInfo]
+
+    strategy
+"""
+
+
 from dataclasses import dataclass, field
-from typing import Dict, List
+
+from typing import (
+    Dict,
+    List,
+)
 
 
 from models import (
-    LogicalModel,
     ModelInfo,
+    LogicalModel,
 )
 
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(levelname)s %(message)s",
-)
 
-
-@dataclass
-class CapabilityGroup:
-    """
-    按能力分类的模型组
-
-    例如：
-
-    chat:
-        qwen3
-        deepseek-v3
-
-    vision:
-        qwen3-vl
-    """
-
-    name: str
-
-    models: List[LogicalModel] = field(
-        default_factory=list
-    )
-
+# ============================================================
+# Build Result
+# ============================================================
 
 
 @dataclass
 class BuildResult:
+
     """
-    Builder 输出结果
+    Builder输出结果
     """
 
-    logical_models: Dict[str, LogicalModel] = field(
+    logical_models: Dict[
+        str,
+        LogicalModel
+    ] = field(
         default_factory=dict
     )
 
 
-    capability_groups: Dict[str, CapabilityGroup] = field(
-        default_factory=dict
-    )
+
+# ============================================================
+# Builder
+# ============================================================
 
 
+class ModelBuilder:
 
-class FallbackBuilder:
+
     """
-    Logical Model 构建器
+    ModelInfo -> LogicalModel
 
+    不再存在:
 
-    输入:
+        ProviderModel
 
-        ModelInfo
+        primary_model
 
-
-    输出:
-
-        LogicalModel(
-            models=[
-                model1,
-                model2
-            ]
-        )
-
-
-    LiteLLM:
-
-        logical-model
-              |
-              |
-              +-- provider model A
-              |
-              +-- provider model B
+        providers
 
     """
 
@@ -92,89 +96,106 @@ class FallbackBuilder:
 
     def build(
         self,
+
         models: List[ModelInfo],
+
     ) -> BuildResult:
 
 
-        result = BuildResult()
+
+        groups = self.group_models(
+            models
+        )
+
+
+        logical_models = {}
+
+
+
+        for name, items in groups.items():
+
+
+            # 按评分排序
+
+            items.sort(
+
+                key=lambda x:
+
+                    getattr(
+                        x,
+                        "score",
+                        0,
+                    )
+                    or 0,
+
+                reverse=True,
+
+            )
+
+
+            logical_model = LogicalModel(
+
+                name=name,
+
+                models=items,
+
+                strategy="fallback",
+
+            )
+
+
+            logical_models[name] = (
+                logical_model
+            )
+
+
+
+        return BuildResult(
+
+            logical_models=logical_models
+
+        )
+
+
+
+    # ========================================================
+    # Group
+    # ========================================================
+
+
+    def group_models(
+
+        self,
+
+        models: List[ModelInfo],
+
+    ) -> Dict[str, List[ModelInfo]]:
+
+
+        result = {}
 
 
 
         for model in models:
 
-            try:
 
-                logical_name = (
-                    model.logical_name
-                    or
-                    model.model_id
-                )
-
-
-                if not logical_name:
-
-                    logging.warning(
-                        "skip model without name: %s",
-                        model,
-                    )
-
-                    continue
-
-
-
-                #
-                # 创建 LogicalModel
-                #
-                logical_model = (
-                    result.logical_models
-                    .get(logical_name)
-                )
-
-
-
-                if logical_model is None:
-
-
-                    logical_model = LogicalModel(
-
-                        logical_name=logical_name,
-
-                        models=[],
-
-                    )
-
-
-                    result.logical_models[
-                        logical_name
-                    ] = logical_model
-
-
-
-                #
-                # 添加模型
-                #
-                logical_model.models.append(
+            name = (
+                self.get_logical_name(
                     model
                 )
+            )
 
 
 
-                #
-                # 能力分组
-                #
-                self._add_capability_group(
-                    result,
-                    logical_model,
-                    model,
-                )
+            if name not in result:
+
+                result[name] = []
 
 
-            except Exception:
 
-                logging.exception(
-                    "build logical model failed: %s",
-                    model,
-                )
+            result[name].append(
+                model
+            )
 
 
 
@@ -182,89 +203,125 @@ class FallbackBuilder:
 
 
 
-    def _add_capability_group(
+    # ========================================================
+    # Logical name
+    # ========================================================
+
+
+    def get_logical_name(
+
         self,
-        result: BuildResult,
-        logical_model: LogicalModel,
+
         model: ModelInfo,
-    ):
+
+    ) -> str:
 
 
-        capability = (
-            model.capability
+        """
+        将实际模型归类
+
+        示例:
+
+        qwen3-235b
+            ->
+        qwen3
+
+
+        deepseek-v3
+            ->
+        deepseek
+
+        """
+
+
+
+        raw_name = (
+
+            getattr(
+                model,
+                "name",
+                None,
+            )
+
+            or
+
+            getattr(
+                model,
+                "model_id",
+                None,
+            )
+
+            or
+
+            "unknown"
+
         )
 
 
-        groups = []
 
-
-
-        if capability.chat:
-
-            groups.append(
-                "chat"
+        raw_name = (
+            raw_name
+            .lower()
+            .replace(
+                "/",
+                "-"
             )
-
-
-        if capability.vision:
-
-            groups.append(
-                "vision"
-            )
-
-
-        if capability.embedding:
-
-            groups.append(
-                "embedding"
-            )
-
-
-        if capability.audio:
-
-            groups.append(
-                "audio"
-            )
+        )
 
 
 
-        #
-        # 没有能力标签
-        #
-        if not groups:
+        keywords = [
 
-            groups.append(
-                "unknown"
-            )
+            "qwen",
 
+            "deepseek",
 
+            "kimi",
 
-        for group_name in groups:
+            "glm",
 
+            "llama",
 
-            group = (
-                result.capability_groups
-                .get(group_name)
-            )
+            "gemma",
 
+            "mistral",
 
-            if group is None:
+            "nemotron",
 
-
-                group = CapabilityGroup(
-                    name=group_name
-                )
-
-
-                result.capability_groups[
-                    group_name
-                ] = group
+        ]
 
 
 
-            if logical_model not in group.models:
+        for keyword in keywords:
 
 
-                group.models.append(
-                    logical_model
-                )
+            if keyword in raw_name:
+
+                return keyword
+
+
+
+        return raw_name.split(
+            "-"
+        )[0]
+
+
+
+# ============================================================
+# 兼容旧调用入口
+# ============================================================
+
+
+class FallbackBuilder(ModelBuilder):
+
+
+    """
+    保留旧类名兼容 main.py
+
+    但内部已经完全使用:
+
+        LogicalModel.models
+
+    """
+
+    pass

@@ -1,15 +1,58 @@
+"""
+main.py
+
+LiteLLM Config Generator
+
+流程:
+
+crawler
+    |
+    v
+raw model dict
+    |
+    v
+ModelInfo
+    |
+    v
+LogicalModel
+    |
+    v
+LiteLLM yaml
+
+
+当前架构:
+
+ModelInfo
+    |
+    v
+LogicalModel.models
+
+已废弃:
+
+ProviderModel
+primary_model
+providers
+"""
+
+
+
 from __future__ import annotations
 
 
 import argparse
+
 import logging
+
 from pathlib import Path
 
+from typing import List
 
-from crawler import crawl_models
 
 
-from parser import parse_model_detail
+from crawler import (
+    crawl_models,
+)
+
 
 
 from models import (
@@ -17,19 +60,17 @@ from models import (
 )
 
 
-from normalizer import (
-    normalize_models,
-)
-
 
 from builder import (
     FallbackBuilder,
 )
 
 
+
 from config_builder import (
-    LiteLLMConfigBuilder,
+    build_config,
 )
+
 
 
 from providers import (
@@ -38,39 +79,78 @@ from providers import (
 
 
 
-OUTPUT_FILE = "config.generated.yaml"
+from normalizer import (
+    normalize_model_name,
+)
+
+
+
+
+
+OUTPUT_FILE = (
+    "config.generated.yaml"
+)
+
+
 
 
 
 logging.basicConfig(
+
     level=logging.INFO,
+
     format="%(levelname)s %(message)s",
+
 )
+
+
+
+
+
+
+# ============================================================
+# args
+# ============================================================
 
 
 
 def parse_args():
 
+
     parser = argparse.ArgumentParser(
+
         description=(
+
             "Generate LiteLLM config "
+
             "from freellm models"
+
         )
+
     )
 
 
     parser.add_argument(
+
         "--top",
+
         type=int,
+
         default=200,
-        help="crawl top models",
+
+        help="top models",
+
     )
 
 
     parser.add_argument(
+
         "--output",
+
         default=OUTPUT_FILE,
-        help="output yaml file",
+
+        help="output yaml",
+
     )
 
 
@@ -78,95 +158,290 @@ def parse_args():
 
 
 
+
+
+
+
+# ============================================================
+# Provider过滤
+# ============================================================
+
+
+
 def filter_supported_models(
+
     models,
+
 ):
+
 
     result = []
 
 
+
     for model in models:
+
 
         try:
 
+
             provider = (
+
                 model.get(
+
                     "provider",
-                    "",
+
+                    ""
+
                 )
+
                 .strip()
+
             )
 
 
             if provider not in SUPPORTED_PROVIDERS:
 
+
                 continue
 
 
+
             result.append(
+
                 model
+
             )
 
 
         except Exception:
 
+
             logging.exception(
+
                 "filter model failed"
+
             )
+
 
 
     return result
 
 
 
-def convert_to_model_info(
-    raw_models,
-):
+
+
+
+
+# ============================================================
+# dict -> ModelInfo
+# ============================================================
+
+
+
+def convert_to_model_infos(
+
+    models,
+
+) -> List[ModelInfo]:
 
     """
-    dict
-        |
-        v
-    ModelInfo
+    crawler dict
 
+    转换:
 
-    由 parser.py/detail_parser.py
-    统一负责字段解析
+    ModelInfo[]
     """
+
 
 
     result = []
 
 
-    for item in raw_models:
+
+    for item in models:
 
 
         try:
 
 
-            model = parse_model_detail(
-                item
+            name = (
+
+                item.get(
+
+                    "name"
+
+                )
+
+                or
+
+                item.get(
+
+                    "model"
+
+                )
+
+                or
+
+                "unknown"
+
             )
 
 
-            if model:
 
-                result.append(
-                    model
+            model_id = (
+
+                item.get(
+
+                    "model_id"
+
                 )
+
+                or
+
+                item.get(
+
+                    "model"
+
+                )
+
+                or
+
+                name
+
+            )
+
+
+
+            info = ModelInfo(
+
+
+                name=normalize_model_name(
+
+                    name
+
+                ),
+
+
+
+                model_id=model_id,
+
+
+
+                provider=(
+
+                    item.get(
+
+                        "provider",
+
+                        ""
+
+                    )
+
+                ),
+
+
+
+                api_base=(
+
+                    item.get(
+
+                        "api_base"
+
+                    )
+
+                    or
+
+                    item.get(
+
+                        "base_url"
+
+                    )
+
+                ),
+
+
+
+                api_key_env=(
+
+                    item.get(
+
+                        "api_key_env"
+
+                    )
+
+                ),
+
+
+
+                capability=(
+
+                    item.get(
+
+                        "capability",
+
+                        {}
+
+                    )
+
+                ),
+
+
+
+                score=(
+
+                    item.get(
+
+                        "score",
+
+                        0
+
+                    )
+
+                    or
+
+                    0
+
+                ),
+
+
+
+                metadata=item,
+
+            )
+
+
+
+            result.append(
+
+                info
+
+            )
+
 
 
         except Exception:
 
 
             logging.exception(
-                "parse model failed: %s",
-                item,
+
+                "convert ModelInfo failed"
+
             )
+
 
 
     return result
 
+
+
+
+
+
+
+# ============================================================
+# main
+# ============================================================
 
 
 
@@ -178,71 +453,86 @@ def main():
 
 
     logging.info(
+
         "Start crawling top %s models",
+
         args.top,
+
     )
 
 
 
-    #
-    # 1. crawl
-    #
+
+    # --------------------------------------------------------
+    # 1 crawl
+    # --------------------------------------------------------
+
+
     raw_models = crawl_models(
+
         top_k=args.top
+
     )
 
 
 
     logging.info(
+
         "Crawler models: %s",
+
         len(raw_models),
+
     )
 
 
 
-    #
-    # 2. provider filter
-    #
+
+
+    # --------------------------------------------------------
+    # 2 provider filter
+    # --------------------------------------------------------
+
+
     raw_models = filter_supported_models(
+
         raw_models
+
     )
 
 
 
     logging.info(
+
         "Supported models: %s",
+
         len(raw_models),
+
     )
 
 
 
-    if not raw_models:
-
-
-        logging.error(
-            "No supported models"
-        )
-
-
-        return
 
 
 
+    # --------------------------------------------------------
+    # 3 ModelInfo
+    # --------------------------------------------------------
 
-    #
-    # 3. dict -> ModelInfo
-    #
-    model_infos = (
-        convert_to_model_info(
-            raw_models
-        )
+
+    model_infos = convert_to_model_infos(
+
+        raw_models
+
     )
 
 
 
     logging.info(
-        "Parsed ModelInfo: %s",
+
+        "ModelInfo count: %s",
+
         len(model_infos),
+
     )
 
 
@@ -251,113 +541,128 @@ def main():
 
 
         logging.error(
-            "No valid ModelInfo"
-        )
 
+            "No valid ModelInfo"
+
+        )
 
         return
 
 
 
 
-    #
-    # 4. normalize
-    #
-    normalized_models = normalize_models(
-        model_infos
-    )
+
+
+    # --------------------------------------------------------
+    # 4 LogicalModel builder
+    # --------------------------------------------------------
 
 
 
-    logging.info(
-        "Normalized models: %s",
-        len(normalized_models),
-    )
-
-
-
-
-    #
-    # 5. build logical models
-    #
     builder = FallbackBuilder()
 
 
 
     build_result = builder.build(
-        normalized_models
+
+        model_infos
+
     )
 
 
 
     logical_models = list(
+
         build_result.logical_models.values()
+
     )
 
 
 
-    capability_groups = {
-
-        name:
-            group.models
-
-        for name, group
-        in build_result.capability_groups.items()
-
-    }
-
-
-
     logging.info(
+
         "Logical models: %s",
+
         len(logical_models),
+
     )
+
+
+
+
+
+
+    # --------------------------------------------------------
+    # 5 LiteLLM config
+    # --------------------------------------------------------
+
+
+
+    config = build_config(
+
+        logical_models
+
+    )
+
+
+
+
+
+
+    # --------------------------------------------------------
+    # 6 save
+    # --------------------------------------------------------
+
+
+
+    output = Path(
+
+        args.output
+
+    )
+
+
+
+    import yaml
+
+
+
+    with open(
+
+        output,
+
+        "w",
+
+        encoding="utf-8",
+
+    ) as f:
+
+
+        yaml.safe_dump(
+
+            config,
+
+            f,
+
+            allow_unicode=True,
+
+            sort_keys=False,
+
+        )
+
 
 
 
     logging.info(
-        "Capability groups: %s",
-        len(capability_groups),
+
+        "Generated %s",
+
+        output,
+
     )
 
 
 
-
-
-    #
-    # 6. LiteLLM yaml
-    #
-    config_builder = (
-        LiteLLMConfigBuilder()
-    )
-
-
-
-    config = config_builder.build(
-        logical_models,
-        capability_groups,
-    )
-
-
-
-
-
-    #
-    # 7. save
-    #
-    config_builder.save(
-        config,
-        Path(
-            args.output
-        ),
-    )
-
-
-
-    logging.info(
-        "Generated: %s",
-        args.output,
-    )
 
 
 
