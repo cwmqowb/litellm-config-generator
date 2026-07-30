@@ -1,381 +1,851 @@
 """
-FreeLLM detail parser.
-
-Purpose:
-    Parse model detail page and convert into unified ModelInfo.
-
-Flow:
-
-detail.html
-    |
-    v
 detail_parser.py
-    |
-    v
-ModelInfo
-    |
-    v
-LiteLLM config builder
 
+FreeLLM模型详情页解析
+
+
+输入:
+
+HTML detail page
+
+
+输出:
+
+dict
+
+后续由 normalizer.py 转换:
+
+dict
+ |
+ v
+ModelInfo
+
+
+禁止:
+
+ProviderModel
+primary_model
+providers
 """
+
 
 from __future__ import annotations
 
 
+import json
+
 import logging
+
 import re
-from typing import Dict, Any, Optional, List
+
+
+from typing import Any, Dict, List
+
 
 
 from bs4 import BeautifulSoup
 
 
-from models import (
-    ModelInfo,
-    ModelCapability,
-    ModelPricing,
-)
-
 
 logger = logging.getLogger(__name__)
 
 
-# =====================================================
-# text helpers
-# =====================================================
 
 
-def clean_text(value: Any) -> str:
+# ============================================================
+# utils
+# ============================================================
+
+
+def clean_text(
+    value: Any
+) -> str:
+
+
     if value is None:
+
         return ""
 
+
     return re.sub(
+
         r"\s+",
+
         " ",
+
         str(value)
+
     ).strip()
 
 
 
-def normalize_number(value):
+
+def remove_copy_suffix(
+    value: str
+) -> str:
+
 
     if not value:
-        return None
 
-    value = (
-        str(value)
-        .replace(",", "")
-        .strip()
-        .upper()
-    )
+        return value
+
+
+
+    return re.sub(
+
+        r"\s+Copy$",
+
+        "",
+
+        value,
+
+        flags=re.I
+
+    ).strip()
+
+
+
+
+# ============================================================
+# next data
+# ============================================================
+
+
+def extract_next_data(
+    html: str
+):
+
 
     try:
 
-        if value.endswith("K"):
-            return int(
-                float(value[:-1])
-                * 1024
-            )
 
-        if value.endswith("M"):
-            return int(
-                float(value[:-1])
-                * 1024
-                * 1024
-            )
+        soup = BeautifulSoup(
 
-        return int(float(value))
+            html,
 
-    except Exception:
-        return None
+            "html.parser"
+
+        )
 
 
-
-# =====================================================
-# field extractor
-# =====================================================
-
-
-def find_value(
-    soup,
-    labels: List[str]
-):
-
-    for label in labels:
 
         node = soup.find(
-            string=lambda x:
-                x
-                and clean_text(x).lower()
-                ==
-                label.lower()
+
+            "script",
+
+            id="__NEXT_DATA__"
+
         )
+
+
 
         if not node:
-            continue
+
+            return {}
 
 
-        parent = node.parent
 
-        if not parent:
-            continue
+        if not node.string:
+
+            return {}
 
 
-        sibling = (
-            parent.find_next_sibling()
+
+        return json.loads(
+
+            node.string
+
         )
 
-        if sibling:
 
-            value = clean_text(
-                sibling.get_text(
-                    " ",
-                    strip=True
-                )
-            )
 
-            if value:
+    except Exception:
+
+
+        return {}
+
+
+
+
+
+# ============================================================
+# recursive json search
+# ============================================================
+
+
+def find_json_value(
+    data,
+    keys: List[str]
+):
+
+
+    if isinstance(data, dict):
+
+
+        for key, value in data.items():
+
+
+            if key.lower() in [
+
+                x.lower()
+
+                for x in keys
+
+            ]:
+
                 return value
 
 
-    return ""
 
+            result = find_json_value(
 
+                value,
 
-def extract_tags(text: str):
+                keys
 
-    tags = []
-
-    mapping = {
-        "vision": [
-            "vision",
-            "image",
-            "multimodal"
-        ],
-
-        "reasoning": [
-            "reasoning",
-            "thinking"
-        ],
-
-        "coding": [
-            "code",
-            "coder",
-            "coding"
-        ],
-
-        "tool_calling": [
-            "tool",
-            "function calling"
-        ],
-
-        "json_mode": [
-            "json",
-            "structured"
-        ],
-    }
-
-
-    lower = text.lower()
-
-
-    for tag, keys in mapping.items():
-
-        for key in keys:
-
-            if key in lower:
-                tags.append(tag)
-                break
-
-
-    return tags
-
-
-
-# =====================================================
-# parser
-# =====================================================
-
-
-def parse_detail_html(
-    html: str,
-    provider: str,
-    detail_url: str = ""
-) -> Optional[ModelInfo]:
-
-
-    if not html:
-        return None
-
-
-    soup = BeautifulSoup(
-        html,
-        "html.parser"
-    )
-
-
-    page_text = clean_text(
-        soup.get_text(
-            " ",
-            strip=True
-        )
-    )
-
-
-    model_id = find_value(
-        soup,
-        [
-            "Model ID",
-            "Model",
-            "Model Name"
-        ]
-    )
-
-
-    base_url = find_value(
-        soup,
-        [
-            "Base URL",
-            "Endpoint",
-            "API Base"
-        ]
-    )
-
-
-    api_format = find_value(
-        soup,
-        [
-            "API Format",
-            "Protocol"
-        ]
-    )
-
-
-    context_window = find_value(
-        soup,
-        [
-            "Context Window",
-            "Context Length"
-        ]
-    )
-
-
-    output_tokens = find_value(
-        soup,
-        [
-            "Max Output Tokens",
-            "Max Tokens"
-        ]
-    )
-
-
-    if not model_id:
-
-        title = soup.title
-
-        if title:
-            model_id = clean_text(
-                title.text
             )
 
 
-    if not model_id:
+            if result is not None:
+
+                return result
+
+
+
+    elif isinstance(data, list):
+
+
+        for item in data:
+
+
+            result = find_json_value(
+
+                item,
+
+                keys
+
+            )
+
+
+            if result is not None:
+
+                return result
+
+
+
+    return None
+
+
+
+
+# ============================================================
+# capability
+# ============================================================
+
+
+def parse_capabilities(
+    text: str
+) -> List[str]:
+
+
+    if not text:
+
+        return []
+
+
+
+    text = text.lower()
+
+
+
+    result = []
+
+
+
+    rules = {
+
+
+        "chat":
+
+        [
+
+            "chat",
+
+            "instruction",
+
+            "conversation",
+
+        ],
+
+
+
+        "vision":
+
+        [
+
+            "vision",
+
+            "multimodal",
+
+            "image input",
+
+        ],
+
+
+
+        "reasoning":
+
+        [
+
+            "reasoning",
+
+            "thinking",
+
+            "cot",
+
+        ],
+
+
+
+        "coding":
+
+        [
+
+            "coding",
+
+            "coder",
+
+            "code",
+
+        ],
+
+
+
+        "embedding":
+
+        [
+
+            "embedding",
+
+        ],
+
+
+
+        "rerank":
+
+        [
+
+            "rerank",
+
+        ],
+
+
+
+        "tool_calling":
+
+        [
+
+            "tool",
+
+            "function calling",
+
+        ],
+
+
+
+        "json_mode":
+
+        [
+
+            "json",
+
+            "structured",
+
+        ],
+
+    }
+
+
+
+
+    for name, words in rules.items():
+
+
+        for word in words:
+
+
+            if word in text:
+
+
+                result.append(
+
+                    name
+
+                )
+
+                break
+
+
+
+
+    return sorted(
+
+        list(set(result))
+
+    )
+
+
+
+
+
+# ============================================================
+# number
+# ============================================================
+
+
+def normalize_number(
+    value
+):
+
+
+    if value is None:
+
         return None
 
 
 
-    capability = ModelCapability()
+    try:
 
 
-    tags = extract_tags(
-        page_text
-    )
+        value = str(value)
 
+        value = value.upper()
 
-    for tag in tags:
+        value = value.replace(
 
-        capability.raw.append(
-            tag
+            ",",
+
+            ""
+
         )
 
 
-        if tag == "vision":
-            capability.vision = True
+
+        if value.endswith("K"):
 
 
-        elif tag == "reasoning":
-            capability.reasoning = True
+            return int(
 
+                float(
 
-        elif tag == "tool_calling":
-            capability.tool_calling = True
+                    value[:-1]
 
+                )
 
-        elif tag == "json_mode":
-            capability.json_mode = True
+                * 1024
 
-
-
-    model = ModelInfo(
-
-        name=model_id.split("/")[-1],
-
-        provider=provider,
-
-        model_id=model_id,
-
-        detail_url=detail_url,
-
-        api_base=base_url or None,
-
-        api_format=api_format or None,
-
-
-        capabilities=capability,
-
-
-        context_window=
-            normalize_number(
-                context_window
-            ),
-
-
-        max_output_tokens=
-            normalize_number(
-                output_tokens
-            ),
-
-
-        free=True,
-
-
-        pricing=ModelPricing(
-            free=True
-        ),
-
-
-        tags=tags,
-
-    )
-
-
-    return model
+            )
 
 
 
-# =====================================================
-# compatibility wrapper
-# =====================================================
+        if value.endswith("M"):
 
 
-def parse_model_detail_to_model(
-    html: str,
-    provider: str,
-    detail_url: str = ""
-):
+            return int(
 
-    return parse_detail_html(
-        html,
-        provider,
-        detail_url
-    )
+                float(
+
+                    value[:-1]
+
+                )
+
+                * 1024
+
+                * 1024
+
+            )
+
+
+
+        return int(
+
+            float(value)
+
+        )
+
+
+
+    except Exception:
+
+
+        return None
+
+
+
+
+# ============================================================
+# main parser
+# ============================================================
+
+
+def parse_model_detail(
+    html: str
+) -> Dict[str, Any]:
+
+
+    result = {
+
+
+        "name":
+
+            "",
+
+
+        "model_id":
+
+            "",
+
+
+        "provider":
+
+            "",
+
+
+
+        "api_base":
+
+            "",
+
+
+
+        "api_format":
+
+            "",
+
+
+
+        "api_key_env":
+
+            "",
+
+
+
+        "capabilities":
+
+            [],
+
+
+
+        "context_window":
+
+            None,
+
+
+
+        "max_output_tokens":
+
+            None,
+
+
+
+        "free":
+
+            False,
+
+
+
+        "score":
+
+            0,
+
+
+
+        "metadata":
+
+            {},
+
+
+    }
+
+
+
+    if not html:
+
+        return result
+
+
+
+
+    try:
+
+
+        soup = BeautifulSoup(
+
+            html,
+
+            "html.parser"
+
+        )
+
+
+
+        page_text = clean_text(
+
+            soup.get_text(
+
+                " ",
+
+                strip=True
+
+            )
+
+        )
+
+
+
+        data = extract_next_data(
+
+            html
+
+        )
+
+
+
+        # ----------------------------
+        # model id
+        # ----------------------------
+
+
+        model_id = find_json_value(
+
+            data,
+
+            [
+
+                "model",
+
+                "modelId",
+
+                "model_id",
+
+            ]
+
+        )
+
+
+
+        if model_id:
+
+
+            model_id = remove_copy_suffix(
+
+                clean_text(
+
+                    model_id
+
+                )
+
+            )
+
+
+            result["model_id"] = model_id
+
+
+            result["name"] = (
+
+                model_id.split("/")[-1]
+
+            )
+
+
+
+        # ----------------------------
+        # api
+        # ----------------------------
+
+
+        base_url = find_json_value(
+
+            data,
+
+            [
+
+                "baseUrl",
+
+                "base_url",
+
+                "endpoint",
+
+            ]
+
+        )
+
+
+
+        if base_url:
+
+
+            result["api_base"] = (
+
+                remove_copy_suffix(
+
+                    clean_text(
+
+                        base_url
+
+                    )
+
+                )
+
+            )
+
+
+
+
+        api_format = find_json_value(
+
+            data,
+
+            [
+
+                "apiFormat",
+
+                "api_format",
+
+                "protocol",
+
+            ]
+
+        )
+
+
+
+        if api_format:
+
+
+            result["api_format"] = (
+
+                clean_text(
+
+                    api_format
+
+                )
+
+            )
+
+
+
+        # ----------------------------
+        # context
+        # ----------------------------
+
+
+        context = find_json_value(
+
+            data,
+
+            [
+
+                "contextWindow",
+
+                "context_window",
+
+                "contextLength",
+
+            ]
+
+        )
+
+
+
+        if context:
+
+
+            result["context_window"] = (
+
+                normalize_number(
+
+                    context
+
+                )
+
+            )
+
+
+
+
+        output = find_json_value(
+
+            data,
+
+            [
+
+                "maxOutputTokens",
+
+                "max_output_tokens",
+
+                "maxTokens",
+
+            ]
+
+        )
+
+
+
+        if output:
+
+
+            result["max_output_tokens"] = (
+
+                normalize_number(
+
+                    output
+
+                )
+
+            )
+
+
+
+
+        # ----------------------------
+        # capability
+        # ----------------------------
+
+
+        result["capabilities"] = (
+
+            parse_capabilities(
+
+                page_text
+
+            )
+
+        )
+
+
+
+        result["metadata"] = {
+
+
+            "source":
+
+                "freellm",
+
+
+        }
+
+
+
+    except Exception:
+
+
+        logger.exception(
+
+            "parse detail failed"
+
+        )
+
+
+
+    return result

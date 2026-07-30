@@ -3,44 +3,39 @@ builder.py
 
 Logical Model Builder
 
+
 输入:
 
-    List[ModelInfo]
+List[ModelInfo]
 
 
 输出:
 
-    BuildResult
-
-其中:
-
-    logical_models:
-        Dict[str, LogicalModel]
+Dict[str, LogicalModel]
 
 
-当前架构:
+架构:
 
 ModelInfo
     |
-    |
     v
+LogicalModel.models
 
-LogicalModel
 
-    name
+禁止:
 
-    models: List[ModelInfo]
-
-    strategy
+ProviderModel
+primary_model
+providers
+FallbackBuilder
 """
+
+from __future__ import annotations
 
 
 from dataclasses import dataclass, field
 
-from typing import (
-    Dict,
-    List,
-)
+from typing import Dict, List
 
 
 from models import (
@@ -58,14 +53,7 @@ from models import (
 @dataclass
 class BuildResult:
 
-    """
-    Builder输出结果
-    """
-
-    logical_models: Dict[
-        str,
-        LogicalModel
-    ] = field(
+    logical_models: Dict[str, LogicalModel] = field(
         default_factory=dict
     )
 
@@ -77,30 +65,19 @@ class BuildResult:
 
 
 class ModelBuilder:
-
-
     """
     ModelInfo -> LogicalModel
-
-    不再存在:
-
-        ProviderModel
-
-        primary_model
-
-        providers
-
     """
 
 
 
     def build(
         self,
-
         models: List[ModelInfo],
-
     ) -> BuildResult:
-
+        """
+        构建逻辑模型
+        """
 
 
         groups = self.group_models(
@@ -108,220 +85,150 @@ class ModelBuilder:
         )
 
 
-        logical_models = {}
+        result = {}
 
 
 
-        for name, items in groups.items():
+        for logical_name, items in groups.items():
 
-
-            # 按评分排序
 
             items.sort(
-
                 key=lambda x:
-
-                    getattr(
-                        x,
-                        "score",
-                        0,
-                    )
-                    or 0,
-
-                reverse=True,
-
+                    x.score,
+                reverse=True
             )
+
 
 
             logical_model = LogicalModel(
 
-                name=name,
+                logical_name=logical_name,
 
                 models=items,
 
-                strategy="fallback",
+                strategy="fallback"
 
             )
 
 
-            logical_models[name] = (
-                logical_model
-            )
+
+            result[logical_name] = logical_model
 
 
 
         return BuildResult(
 
-            logical_models=logical_models
+            logical_models=result
 
         )
 
 
 
     # ========================================================
-    # Group
+    # group
     # ========================================================
 
 
     def group_models(
-
         self,
-
-        models: List[ModelInfo],
-
+        models: List[ModelInfo]
     ) -> Dict[str, List[ModelInfo]]:
 
 
-        result = {}
+        groups = {}
 
 
 
         for model in models:
 
 
-            name = (
+            logical_name = (
                 self.get_logical_name(
                     model
                 )
             )
 
 
+            if logical_name not in groups:
 
-            if name not in result:
-
-                result[name] = []
-
+                groups[logical_name] = []
 
 
-            result[name].append(
+
+            groups[logical_name].append(
                 model
             )
 
 
 
-        return result
+        return groups
 
 
 
     # ========================================================
-    # Logical name
+    # logical name
     # ========================================================
 
 
     def get_logical_name(
-
         self,
-
-        model: ModelInfo,
-
+        model: ModelInfo
     ) -> str:
-
-
         """
-        将实际模型归类
-
-        示例:
-
-        qwen3-235b
-            ->
-        qwen3
+        生成逻辑模型名称
 
 
-        deepseek-v3
-            ->
-        deepseek
+        优先:
+
+        ModelInfo.logical_name
+
+
+        其次:
+
+        根据能力分类
 
         """
 
 
 
-        raw_name = (
+        if model.logical_name:
 
-            getattr(
-                model,
-                "name",
-                None,
-            )
-
-            or
-
-            getattr(
-                model,
-                "model_id",
-                None,
-            )
-
-            or
-
-            "unknown"
-
-        )
+            return model.logical_name
 
 
 
-        raw_name = (
-            raw_name
-            .lower()
-            .replace(
-                "/",
-                "-"
-            )
-        )
+        capability = model.capabilities
 
 
 
-        keywords = [
+        if capability.vision:
 
-            "qwen",
-
-            "deepseek",
-
-            "kimi",
-
-            "glm",
-
-            "llama",
-
-            "gemma",
-
-            "mistral",
-
-            "nemotron",
-
-        ]
+            return "vision"
 
 
 
-        for keyword in keywords:
+        if capability.reasoning:
 
-
-            if keyword in raw_name:
-
-                return keyword
+            return "reasoning"
 
 
 
-        return raw_name.split(
-            "-"
-        )[0]
+        if capability.coding:
+
+            return "coding"
 
 
 
-# ============================================================
-# 兼容旧调用入口
-# ============================================================
+        if capability.embedding:
+
+            return "embedding"
 
 
-class FallbackBuilder(ModelBuilder):
+
+        if capability.rerank:
+
+            return "rerank"
 
 
-    """
-    保留旧类名兼容 main.py
 
-    但内部已经完全使用:
-
-        LogicalModel.models
-
-    """
-
-    pass
+        return "chat"

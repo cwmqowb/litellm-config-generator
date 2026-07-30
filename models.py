@@ -1,287 +1,354 @@
 """
-Model data structures.
+models.py
 
-This module defines unified model information objects used by:
-- crawler.py
-- parser.py
-- detail_parser.py
-- normalizer.py
-- config_builder.py
+统一模型数据结构
 
-The goal is to normalize different free LLM providers
-into a LiteLLM-compatible model representation.
+架构:
+
+crawler/parser/detail_parser
+            |
+            v
+        ModelInfo
+            |
+            v
+    LogicalModel.models
+            |
+            v
+      LiteLLM config.yaml
 """
 
-from dataclasses import dataclass, field, asdict
-from typing import List, Dict, Optional
+from __future__ import annotations
 
+from dataclasses import dataclass, field, asdict
+from typing import Dict, List, Optional
+
+
+# ============================================================
+# Capability
+# ============================================================
 
 @dataclass
 class ModelCapability:
     """
-    Model capability information.
-
-    Example:
-    - reasoning
-    - vision
-    - tool_calling
-    - json_mode
+    模型能力
     """
 
-    reasoning: bool = False
+    chat: bool = False
     vision: bool = False
+    reasoning: bool = False
+    coding: bool = False
+    embedding: bool = False
+    rerank: bool = False
+    image: bool = False
+    audio: bool = False
     tool_calling: bool = False
     json_mode: bool = False
 
-    # Original capability text from provider page
-    raw: List[str] = field(default_factory=list)
+    raw: List[str] = field(
+        default_factory=list
+    )
 
+
+# ============================================================
+# Pricing
+# ============================================================
 
 @dataclass
 class ModelPricing:
     """
-    Pricing information.
-
-    FreeLLM may provide:
-    - free tier information
-    - paid pricing information
-
-    Keep optional because many providers do not expose pricing.
+    模型价格信息
     """
 
     input_price: Optional[float] = None
+
     output_price: Optional[float] = None
 
     currency: str = "USD"
 
     free: bool = False
 
-    free_note: Optional[str] = None
+    note: Optional[str] = None
 
+
+
+# ============================================================
+# Availability
+# ============================================================
+
+@dataclass
+class ModelAvailability:
+    """
+    模型可用性状态
+    """
+
+    network_ok: bool = False
+
+    auth_ok: bool = False
+
+    model_available: bool = False
+
+    tested: bool = False
+
+    error: Optional[str] = None
+
+
+
+# ============================================================
+# ModelInfo
+# ============================================================
 
 @dataclass
 class ModelInfo:
     """
-    Unified LLM model information.
+    单个实际模型
 
-    This object is the core data model of the project.
+    示例:
 
-    Data source:
-        FreeLLM models.html
-        FreeLLM model detail page
+    NVIDIA
+        nvidia/glm-5
 
-    Output target:
-        LiteLLM config.yaml
+    ModelScope
+        deepseek-ai/DeepSeek-V3
     """
 
-    # ==========================
-    # Basic information
-    # ==========================
+
+    # ----------------------------
+    # 基础信息
+    # ----------------------------
 
     name: str
 
+
+    logical_name: str
+
+
     provider: str
 
-    # Provider original model ID
-    # Example:
-    # z-ai/glm-5.2
-    model_id: Optional[str] = None
+
+    model_id: str
 
 
-    # Detail page URL
-    detail_url: Optional[str] = None
-
-
-    # ==========================
-    # API information
-    # ==========================
+    # ----------------------------
+    # API信息
+    # ----------------------------
 
     api_base: Optional[str] = None
 
-    api_format: Optional[str] = None
 
-    # Environment variable name
-    # Example:
-    # NVIDIA_API_KEY
     api_key_env: Optional[str] = None
 
 
-    # ==========================
-    # Model capability
-    # ==========================
+    api_format: Optional[str] = None
+
+
+
+    # ----------------------------
+    # 能力
+    # ----------------------------
 
     capabilities: ModelCapability = field(
         default_factory=ModelCapability
     )
 
 
-    input_types: List[str] = field(
-        default_factory=list
-    )
-
-    output_types: List[str] = field(
-        default_factory=list
-    )
-
-
-    # ==========================
-    # Context information
-    # ==========================
+    # ----------------------------
+    # 上下文
+    # ----------------------------
 
     context_window: Optional[int] = None
+
 
     max_output_tokens: Optional[int] = None
 
 
-    # ==========================
-    # Availability
-    # ==========================
+
+    # ----------------------------
+    # 免费/价格
+    # ----------------------------
 
     free: bool = False
 
-    verified: bool = False
-
-    online: bool = False
-
-
-    # ==========================
-    # Pricing
-    # ==========================
 
     pricing: ModelPricing = field(
         default_factory=ModelPricing
     )
 
 
-    # ==========================
-    # Ranking / selection
-    # ==========================
+
+    # ----------------------------
+    # 状态
+    # ----------------------------
+
+    availability: ModelAvailability = field(
+        default_factory=ModelAvailability
+    )
+
+
+
+    # ----------------------------
+    # 排序
+    # ----------------------------
 
     score: float = 0
+
 
     priority: int = 0
 
 
-    # ==========================
-    # Extra metadata
-    # ==========================
+
+    # ----------------------------
+    # 扩展
+    # ----------------------------
 
     tags: List[str] = field(
         default_factory=list
     )
+
 
     metadata: Dict = field(
         default_factory=dict
     )
 
 
-    def to_dict(self) -> Dict:
-        """
-        Convert model object into dictionary.
+    # ========================================================
+    # methods
+    # ========================================================
 
-        Used by:
-        - json export
-        - debug output
-        - config builder
-        """
+    def to_dict(self):
 
         return asdict(self)
 
 
-    def add_tag(self, tag: str):
-        """
-        Add model tag safely.
-        """
+
+    def add_tag(
+        self,
+        tag: str
+    ):
 
         if tag not in self.tags:
             self.tags.append(tag)
 
 
-    def add_capability(self, capability: str):
-        """
-        Normalize capability string.
-        """
 
-        capability = capability.lower().strip()
+    def add_capability(
+        self,
+        capability: str
+    ):
 
-        if capability not in self.capabilities.raw:
-            self.capabilities.raw.append(capability)
-
-        if capability in (
-            "reasoning",
-            "thinking",
-        ):
-            self.capabilities.reasoning = True
-
-
-        elif capability in (
-            "vision",
-            "image",
-            "multimodal",
-        ):
-            self.capabilities.vision = True
-
-
-        elif capability in (
-            "tool calling",
-            "tool_calling",
-            "function calling",
-        ):
-            self.capabilities.tool_calling = True
-
-
-        elif capability in (
-            "json",
-            "json mode",
-            "structured output",
-        ):
-            self.capabilities.json_mode = True
-
-
-
-    def is_chat_model(self) -> bool:
-        """
-        Determine whether model can be used as chat model.
-        """
-
-        if not self.input_types:
-            return True
-
-        return (
-            "text" in self.input_types
-            or "chat" in self.input_types
+        capability = (
+            capability
+            .lower()
+            .strip()
         )
 
 
-    def is_vision_model(self) -> bool:
-        """
-        Determine whether model supports vision.
-        """
-
-        return self.capabilities.vision
+        if capability not in self.capabilities.raw:
+            self.capabilities.raw.append(
+                capability
+            )
 
 
+        mapping = {
+
+            "chat":
+                "chat",
+
+            "conversation":
+                "chat",
+
+            "vision":
+                "vision",
+
+            "image":
+                "vision",
+
+            "multimodal":
+                "vision",
+
+            "reasoning":
+                "reasoning",
+
+            "thinking":
+                "reasoning",
+
+            "coder":
+                "coding",
+
+            "coding":
+                "coding",
+
+            "embedding":
+                "embedding",
+
+            "rerank":
+                "rerank",
+
+            "tool":
+                "tool_calling",
+
+            "function calling":
+                "tool_calling",
+
+            "json":
+                "json_mode",
+
+        }
+
+
+        field_name = mapping.get(
+            capability
+        )
+
+
+        if field_name:
+
+            setattr(
+                self.capabilities,
+                field_name,
+                True
+            )
+
+
+
+    def is_chat_model(self):
+
+        return (
+            self.capabilities.chat
+            or
+            not any(
+                [
+                    self.capabilities.embedding,
+                    self.capabilities.rerank,
+                    self.capabilities.image,
+                ]
+            )
+        )
+
+
+
+# ============================================================
+# LogicalModel
+# ============================================================
 
 @dataclass
 class LogicalModel:
     """
-    Logical model abstraction.
+    LiteLLM逻辑模型
 
-    Example:
+    示例:
 
     smart-chat
+
         |
-        +-- glm-5.2 NVIDIA
-        +-- deepseek-v3 ModelScope
-        +-- gpt-4o GitHub Models
+        +-- qwen3 NVIDIA
 
+        +-- glm-5 ModelScope
 
-    Used for LiteLLM router configuration.
+        +-- deepseek SambaNova
     """
 
-    name: str
 
-    description: Optional[str] = None
+    logical_name: str
 
 
     models: List[ModelInfo] = field(
@@ -292,35 +359,36 @@ class LogicalModel:
     strategy: str = "fallback"
 
 
+
+    description: Optional[str] = None
+
+
+
     def add_model(
         self,
         model: ModelInfo
     ):
-        """
-        Add physical model.
-        """
 
-        self.models.append(model)
+        self.models.append(
+            model
+        )
+
 
 
     def sort_models(self):
-        """
-        Sort by score descending.
-        """
 
         self.models.sort(
-            key=lambda x: x.score,
+            key=lambda x:
+                x.score,
             reverse=True
         )
 
 
-    def get_model_ids(self) -> List[str]:
-        """
-        Return provider model IDs.
-        """
+
+    def get_model_ids(self):
 
         return [
-            m.model_id
-            for m in self.models
-            if m.model_id
+            model.model_id
+            for model in self.models
+            if model.model_id
         ]

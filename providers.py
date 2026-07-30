@@ -1,122 +1,266 @@
+"""
+providers.py
+
+Provider统一定义
+
+
+作用:
+
+维护模型Provider基础信息
+
+
+不负责:
+
+- ProviderModel
+- 模型聚合
+- fallback
+- logical model
+
+
+架构:
+
+ProviderInfo
+      |
+      v
+ModelInfo.provider
+"""
+
+
+from __future__ import annotations
+
+
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+
+from typing import Dict, Optional
+
+
+
+# ============================================================
+# ProviderInfo
+# ============================================================
 
 
 @dataclass
-class ProviderConfig:
+class ProviderInfo:
+    """
+    API Provider信息
+    """
+
+
     name: str
 
-    api_base: str
 
-    api_key_envs: List[str]
+
+    api_base: Optional[str] = None
+
+
+
+    api_key_env: Optional[str] = None
+
+
 
     api_format: str = "openai"
 
-    extra_headers: Optional[dict] = None
 
 
-PROVIDER_PRIORITY = [
-    "NVIDIA NIM",
-    "OpenRouter",
-    "GitHub Models",
-    "ModelScope",
-    "SambaNova",
-    "Agnes AI",
-    "Kilo Code",
-]
+    enabled: bool = True
 
 
-PROVIDERS: Dict[str, ProviderConfig] = {
 
-    "NVIDIA NIM": ProviderConfig(
+    metadata: Dict = field(
+
+        default_factory=dict
+
+    )
+
+
+
+# ============================================================
+# Provider Registry
+# ============================================================
+
+
+SUPPORTED_PROVIDERS = {
+
+
+    "NVIDIA NIM": ProviderInfo(
+
         name="NVIDIA NIM",
+
         api_base="https://integrate.api.nvidia.com/v1",
-        api_key_envs=[
-            "NVIDIA_API_KEY",
-            "NVIDIA_API_KEY_1",
-            "NVIDIA_API_KEY_2",
-            "NVIDIA_API_KEY_3",
-            "NVIDIA_API_KEY_4",
-            "NVIDIA_API_KEY_5",
-        ],
+
+        api_key_env="NVIDIA_API_KEY",
+
     ),
 
-    "OpenRouter": ProviderConfig(
+
+
+    "OpenRouter": ProviderInfo(
+
         name="OpenRouter",
+
         api_base="https://openrouter.ai/api/v1",
-        api_key_envs=[
-            "OPENROUTER_API_KEY",
-            "OPENROUTER_API_KEY_1",
-            "OPENROUTER_API_KEY_2",
-            "OPENROUTER_API_KEY_3",
-        ],
+
+        api_key_env="OPENROUTER_API_KEY",
+
     ),
 
-    "GitHub Models": ProviderConfig(
+
+
+    "GitHub Models": ProviderInfo(
+
         name="GitHub Models",
+
         api_base="https://models.inference.ai.azure.com",
-        api_key_envs=[
-            "GITHUB_MODELS_API_KEY",
-            "GITHUB_MODELS_API_KEY_1",
-            "GITHUB_MODELS_API_KEY_2",
-        ],
+
+        api_key_env="GITHUB_MODELS_API_KEY",
+
     ),
 
-    "ModelScope": ProviderConfig(
+
+
+    "ModelScope": ProviderInfo(
+
         name="ModelScope",
+
         api_base="https://api-inference.modelscope.cn/v1",
-        api_key_envs=[
-            "MODELSCOPE_API_KEY",
-            "MODELSCOPE_API_KEY_1",
-            "MODELSCOPE_API_KEY_2",
-        ],
+
+        api_key_env="MODELSCOPE_API_KEY",
+
     ),
 
-    "SambaNova": ProviderConfig(
+
+
+    "SambaNova": ProviderInfo(
+
         name="SambaNova",
+
         api_base="https://api.sambanova.ai/v1",
-        api_key_envs=[
-            "SAMBANOVA_API_KEY",
-            "SAMBANOVA_API_KEY_1",
-        ],
+
+        api_key_env="SAMBANOVA_API_KEY",
+
     ),
 
-    "Agnes AI": ProviderConfig(
+
+
+    "Agnes AI": ProviderInfo(
+
         name="Agnes AI",
-        api_base="https://apihub.agnes-ai.com/v1",
-        api_key_envs=[
-            "AGNES_API_KEY",
-            "AGNES_API_KEY_1",
-        ],
+
+        api_base="https://api.agnes-ai.com/v1",
+
+        api_key_env="AGNES_API_KEY",
+
     ),
 
-    "Kilo Code": ProviderConfig(
+
+
+    "Kilo Code": ProviderInfo(
+
         name="Kilo Code",
-        api_base="https://api.kiloai.com/v1",
-        api_key_envs=[
-            "KILO_API_KEY",
-            "KILO_API_KEY_1",
-        ],
+
+        api_base="",
+
+        api_key_env="KILO_API_KEY",
+
     ),
+
+
+
 }
 
 
-SUPPORTED_PROVIDERS = set(PROVIDER_PRIORITY)
+
+# ============================================================
+# helpers
+# ============================================================
 
 
-def get_provider(name: str) -> Optional[ProviderConfig]:
-    return PROVIDERS.get(name)
+def get_provider(
+    name: str
+) -> Optional[ProviderInfo]:
+    """
+    获取Provider配置
+    """
 
 
-def provider_priority(name: str) -> int:
-    try:
-        return PROVIDER_PRIORITY.index(name)
-    except ValueError:
-        return 999
+    if not name:
+
+        return None
 
 
-def sort_provider_models(provider_models):
-    return sorted(
-        provider_models,
-        key=lambda x: provider_priority(x.provider),
+
+    for key, value in SUPPORTED_PROVIDERS.items():
+
+
+        if key.lower() == name.lower():
+
+            return value
+
+
+
+    return None
+
+
+
+
+
+def is_supported_provider(
+    name: str
+) -> bool:
+
+
+    return (
+        get_provider(
+            name
+        )
+        is not None
     )
+
+
+
+
+
+def get_provider_api_base(
+    name: str
+) -> Optional[str]:
+
+
+    provider = get_provider(
+
+        name
+
+    )
+
+
+    if provider:
+
+        return provider.api_base
+
+
+
+    return None
+
+
+
+
+
+def get_provider_key_env(
+    name: str
+) -> Optional[str]:
+
+
+    provider = get_provider(
+
+        name
+
+    )
+
+
+    if provider:
+
+        return provider.api_key_env
+
+
+
+    return None
