@@ -4,11 +4,18 @@ LiteLLM Config Builder
 职责:
 
 1. Logical Model 输出
-2. Provider Deployment 输出
-3. Router 配置生成
+2. Provider Model Deployment 输出
+3. Router fallback 配置生成
 4. Capability / Metadata 输出
 
-生成:
+输入:
+
+LogicalModel
+    |
+    └── models: List[ModelInfo]
+
+
+输出:
 
 config.generated.yaml
 
@@ -17,19 +24,27 @@ config.generated.yaml
 
 from __future__ import annotations
 
+
 from collections import defaultdict
 from pathlib import Path
 from typing import Any, Dict, List
 
+
 import yaml
 
-from models import LogicalModel, ProviderModel
+
+from models import (
+    LogicalModel,
+    ModelInfo,
+)
+
 
 
 class LiteLLMConfigBuilder:
     """
     将 LogicalModel 转换为 LiteLLM config.yaml
     """
+
 
     def build(
         self,
@@ -39,34 +54,53 @@ class LiteLLMConfigBuilder:
 
         config: dict[str, Any] = {}
 
+
         #
         # LiteLLM 全局配置
         #
         config["litellm_settings"] = {
+
             "drop_params": True,
+
             "set_verbose": False,
+
         }
+
 
 
         #
         # Router 配置
         #
         config["router_settings"] = {
-            "routing_strategy": "simple-shuffle",
-            "num_retries": 3,
-            "timeout": 120,
+
+            "routing_strategy":
+                "simple-shuffle",
+
+            "num_retries":
+                3,
+
+            "timeout":
+                120,
+
         }
+
 
 
         config["model_list"] = []
 
 
+
         #
-        # 记录 logical model deployment
+        # 保存 logical model 对应 deployment
         #
-        logical_deployments: dict[str, list[str]] = {}
+        logical_deployments: dict[
+            str,
+            list[str]
+        ] = {}
+
 
         deployment_counter = defaultdict(int)
+
 
 
         #
@@ -74,47 +108,74 @@ class LiteLLMConfigBuilder:
         #
         for logical in logical_models:
 
+
             deployments = []
 
 
             #
-            # 按 score 排序
+            # 当前 LogicalModel 下
+            # 的物理模型列表
             #
-            providers = sorted(
-                logical.providers,
-                key=lambda x: getattr(
-                    x,
-                    "score",
-                    0
-                ),
+            models = sorted(
+
+                logical.models,
+
+                key=lambda x:
+                    getattr(
+                        x,
+                        "score",
+                        0
+                    ),
+
                 reverse=True,
+
             )
 
 
-            for provider_model in providers:
+
+            for model in models:
 
 
                 provider_key = (
-                    provider_model.provider
+
+                    model.provider
+
                     .lower()
-                    .replace(" ", "_")
+
+                    .replace(
+                        " ",
+                        "_"
+                    )
+
                 )
+
 
 
                 counter_key = (
+
                     f"{logical.name}"
+
                     f"__{provider_key}"
+
                 )
+
 
 
                 deployment_counter[counter_key] += 1
 
 
+
                 deployment_name = (
+
                     f"{logical.name}"
+
                     f"__{provider_key}"
-                    f"_{deployment_counter[counter_key]}"
+
+                    f"_"
+                    f"{deployment_counter[counter_key]}"
+
                 )
+
 
 
                 deployments.append(
@@ -122,17 +183,27 @@ class LiteLLMConfigBuilder:
                 )
 
 
+
                 config["model_list"].append(
+
                     self._build_model(
-                        provider_model,
+
+                        logical,
+
+                        model,
+
                         deployment_name,
+
                     )
+
                 )
+
 
 
             logical_deployments[
                 logical.name
             ] = deployments
+
 
 
 
@@ -142,6 +213,7 @@ class LiteLLMConfigBuilder:
         fallbacks = []
 
 
+
         for logical_name, deployments in logical_deployments.items():
 
 
@@ -149,30 +221,44 @@ class LiteLLMConfigBuilder:
                 continue
 
 
+
             #
-            # 第一个为主模型
-            # 后续为备用
+            # score最高作为主模型
             #
             primary = deployments[0]
+
 
             backups = deployments[1:]
 
 
+
             fallbacks.append(
+
                 {
+
                     primary:
+
                     backups
+
                 }
+
             )
+
 
 
         if fallbacks:
 
+
             config[
+
                 "router_settings"
+
             ][
+
                 "fallbacks"
+
             ] = fallbacks
+
 
 
 
@@ -181,12 +267,18 @@ class LiteLLMConfigBuilder:
         #
         if capability_map:
 
+
             config[
+
                 "model_groups"
+
             ] = capability_map
 
 
+
         return config
+
+
 
 
 
@@ -196,31 +288,49 @@ class LiteLLMConfigBuilder:
         output: str | Path,
     ):
 
+
         output = Path(output)
 
+
         output.parent.mkdir(
+
             parents=True,
+
             exist_ok=True,
+
         )
 
 
+
         with output.open(
+
             "w",
+
             encoding="utf-8",
+
         ) as f:
 
+
             yaml.safe_dump(
+
                 config,
+
                 f,
+
                 allow_unicode=True,
+
                 sort_keys=False,
+
             )
+
+
 
 
 
     def _build_model(
         self,
-        model: ProviderModel,
+        logical: LogicalModel,
+        model: ModelInfo,
         deployment_name: str,
     ) -> dict[str, Any]:
 
@@ -228,139 +338,236 @@ class LiteLLMConfigBuilder:
         tags = []
 
 
-        capability = model.capability
+
+        capability = (
+            model.capabilities
+        )
 
 
+
+        #
+        # capability tags
+        #
         if capability.chat:
-            tags.append("chat")
+
+            tags.append(
+                "chat"
+            )
+
 
         if capability.reasoning:
-            tags.append("reasoning")
+
+            tags.append(
+                "reasoning"
+            )
+
 
         if capability.coding:
-            tags.append("coding")
+
+            tags.append(
+                "coding"
+            )
+
 
         if capability.vision:
-            tags.append("vision")
+
+            tags.append(
+                "vision"
+            )
+
 
         if capability.embedding:
-            tags.append("embedding")
+
+            tags.append(
+                "embedding"
+            )
+
 
         if capability.rerank:
-            tags.append("rerank")
+
+            tags.append(
+                "rerank"
+            )
+
 
         if capability.image:
-            tags.append("image")
+
+            tags.append(
+                "image"
+            )
+
 
         if capability.audio:
-            tags.append("audio")
+
+            tags.append(
+                "audio"
+            )
+
 
         if capability.tools:
-            tags.append("tools")
+
+            tags.append(
+                "tools"
+            )
+
 
         if capability.json_mode:
-            tags.append("json")
+
+            tags.append(
+                "json"
+            )
 
 
 
-        #
-        # LiteLLM model name
-        #
-        litellm_model = self._normalize_model_name(
-            model
+
+        litellm_model = (
+
+            self._normalize_model_name(
+
+                model
+
+            )
+
         )
+
 
 
         return {
 
 
             #
-            # logical model
+            # LiteLLM logical model
             #
             "model_name":
-                model.logical_name,
+
+                logical.name,
+
 
 
             "litellm_params": {
 
+
                 "model":
+
                     litellm_model,
 
 
+
                 "api_base":
+
                     model.api_base,
 
 
+
                 "api_key":
+
                     (
+
                         f"os.environ/"
+
                         f"{model.api_key_env}"
-                    ),
+
+                    )
+
+                    if model.api_key_env
+
+                    else None,
+
             },
+
 
 
             "model_info": {
 
 
                 "deployment_name":
+
                     deployment_name,
 
 
+
                 "provider":
+
                     model.provider,
 
 
+
                 "logical_model":
-                    model.logical_name,
+
+                    logical.name,
+
 
 
                 "original_model":
+
                     model.model_id,
 
 
-                #
-                # 排序评分
-                #
+
                 "score":
+
                     getattr(
+
                         model,
+
                         "score",
+
                         0
+
                     ),
+
 
 
                 "context_window":
+
                     getattr(
+
                         model,
+
                         "context_window",
+
                         None
+
                     ),
+
 
 
                 "max_output_tokens":
+
                     getattr(
+
                         model,
+
                         "max_output_tokens",
+
                         None
+
                     ),
 
 
+
                 "tags":
+
                     tags,
 
+
             },
+
 
         }
 
 
 
+
+
     def _normalize_model_name(
         self,
-        model: ProviderModel,
+        model: ModelInfo,
     ) -> str:
 
 
         model_id = model.model_id
+
 
 
         #
@@ -372,20 +579,29 @@ class LiteLLMConfigBuilder:
 
 
 
+
         provider = (
+
             model.provider
+
             .lower()
+
         )
 
 
+
         #
-        # NVIDIA NIM
+        # NVIDIA
         #
         if "nvidia" in provider:
 
+
             return (
+
                 f"nvidia/{model_id}"
+
             )
+
 
 
         #
@@ -393,14 +609,48 @@ class LiteLLMConfigBuilder:
         #
         if "openrouter" in provider:
 
+
             return (
+
                 f"openrouter/{model_id}"
+
             )
 
 
+
         #
-        # 其他 OpenAI Compatible provider
+        # ModelScope
+        #
+        if "modelscope" in provider:
+
+
+            return (
+
+                f"modelscope/{model_id}"
+
+            )
+
+
+
+        #
+        # GitHub Models
+        #
+        if "github" in provider:
+
+
+            return (
+
+                f"github/{model_id}"
+
+            )
+
+
+
+        #
+        # 默认 OpenAI Compatible
         #
         return (
+
             f"openai/{model_id}"
+
         )
