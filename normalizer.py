@@ -3,27 +3,35 @@ normalizer.py
 
 模型标准化模块
 
-职责：
-1. 将 detail_parser 输出的 ModelInfo 列表标准化
-2. 根据模型能力生成 LogicalModel
-3. 不负责 LiteLLM YAML 生成
+输入:
+    List[ModelInfo]
 
-数据流：
+输出:
+    List[LogicalModel]
 
-detail_parser
-        |
-        v
-    ModelInfo[]
-        |
-        v
-    normalizer
-        |
-        v
-    LogicalModel[]
-        |
-        v
-config_builder
+负责:
+    1. 模型名称归一化
+    2. 按逻辑模型聚合
+    3. 生成 LogicalModel.models
+
+当前架构:
+
+LogicalModel
+    name
+    models[]
+    strategy
+
+
+ModelInfo
+    name
+    model_id
+    provider
+    api_base
+    api_key_env
+    capability
+    score
 """
+
 
 from typing import List, Dict
 
@@ -33,303 +41,217 @@ from models import (
 )
 
 
-# ============================================================
-# 默认能力关键词
-# ============================================================
-
-VISION_KEYWORDS = [
-    "vision",
-    "vl",
-    "image",
-    "multimodal",
-    "llava",
-    "qwen-vl",
-    "gpt-4o",
-    "gemini",
-]
-
-
-REASONING_KEYWORDS = [
-    "reasoning",
-    "think",
-    "r1",
-    "o1",
-    "o3",
-    "deepseek-r1",
-    "qwq",
-]
-
-
-CHAT_KEYWORDS = [
-    "chat",
-    "instruct",
-    "chatgpt",
-    "assistant",
-]
-
 
 # ============================================================
-# 基础能力判断
+# 名称归一化
 # ============================================================
 
 
-def detect_capabilities(model: ModelInfo) -> List[str]:
+def normalize_model_name(
+    name: str,
+) -> str:
+
+    if not name:
+        return "unknown"
+
+
+    name = (
+        name
+        .strip()
+        .lower()
+    )
+
+
+    replacements = {
+
+        "-": "_",
+
+        ".": "_",
+
+        "/": "_",
+
+    }
+
+
+    for k, v in replacements.items():
+
+        name = name.replace(
+            k,
+            v,
+        )
+
+
+    return name
+
+
+
+# ============================================================
+# 判断逻辑模型
+# ============================================================
+
+
+def get_logical_name(
+    model: ModelInfo,
+) -> str:
+
     """
-    根据模型名称和已有能力判断模型能力
+    根据真实模型名称
+    生成逻辑模型名
 
-    返回:
-        [
-            "chat",
-            "vision",
-            "reasoning"
-        ]
+    示例:
+
+    qwen3-235b
+        ->
+    qwen3
+
+    deepseek-v3
+        ->
+    deepseek
     """
 
-    capabilities = set()
+
+    name = (
+        getattr(
+            model,
+            "name",
+            None,
+        )
+        or
+        getattr(
+            model,
+            "model_id",
+            None,
+        )
+        or
+        "unknown"
+    )
 
 
-    # --------------------------------------------------------
-    # 优先使用 parser 已解析能力
-    # --------------------------------------------------------
-
-    existing = getattr(model, "capabilities", None)
-
-    if existing:
-
-        if isinstance(existing, list):
-            capabilities.update(existing)
-
-        elif isinstance(existing, str):
-            capabilities.add(existing)
+    name = normalize_model_name(
+        name
+    )
 
 
+    keywords = [
 
-    # --------------------------------------------------------
-    # 模型名称辅助判断
-    # --------------------------------------------------------
+        "qwen",
 
-    text = " ".join(
-        [
-            str(getattr(model, "name", "")),
-            str(getattr(model, "model", "")),
-        ]
-    ).lower()
+        "deepseek",
 
+        "kimi",
 
+        "glm",
 
-    for keyword in VISION_KEYWORDS:
+        "llama",
 
-        if keyword in text:
-            capabilities.add("vision")
-            break
+        "gemma",
 
+        "mistral",
 
+        "nemotron",
 
-    for keyword in REASONING_KEYWORDS:
-
-        if keyword in text:
-            capabilities.add("reasoning")
-            break
+    ]
 
 
+    for keyword in keywords:
 
-    # 默认所有 LLM 至少支持 chat
+        if keyword in name:
 
-    if not capabilities:
-
-        capabilities.add("chat")
-
-    else:
-
-        # 非纯 embedding/rerank 模型默认加入 chat
-
-        if (
-            "embedding" not in text
-            and "rerank" not in text
-        ):
-            capabilities.add("chat")
+            return keyword
 
 
 
-    return sorted(list(capabilities))
+    return name
 
 
 
 # ============================================================
-# 模型标准化
+# 主入口
 # ============================================================
 
 
 def normalize_models(
     models: List[ModelInfo],
-) -> List[ModelInfo]:
-    """
-    标准化模型字段
-
-    不创建新对象，
-    只补充缺失字段
-    """
-
-    normalized = []
-
-
-    for model in models:
-
-
-        # ----------------------------------------------------
-        # capabilities
-        # ----------------------------------------------------
-
-        capabilities = detect_capabilities(model)
-
-
-        if hasattr(model, "capabilities"):
-
-            model.capabilities = capabilities
-
-
-
-        # ----------------------------------------------------
-        # score 默认值
-        # ----------------------------------------------------
-
-        if not getattr(model, "score", None):
-
-            model.score = 0
-
-
-
-        normalized.append(model)
-
-
-
-    return normalized
-
-
-
-# ============================================================
-# Logical Model 构建
-# ============================================================
-
-
-def build_logical_models(
-    models: List[ModelInfo],
 ) -> List[LogicalModel]:
-    """
-    创建逻辑模型
-
-    输出:
-
-    LogicalModel(
-        name="chat",
-        models=[
-            ModelInfo,
-            ModelInfo
-        ],
-        strategy="fallback"
-    )
 
     """
+    ModelInfo[]
 
-    models = normalize_models(models)
+    转换:
+
+    LogicalModel[]
+    """
 
 
-    groups: Dict[str, List[ModelInfo]] = {
-
-        "chat": [],
-        "vision": [],
-        "reasoning": [],
-
-    }
+    groups: Dict[
+        str,
+        List[ModelInfo]
+    ] = {}
 
 
 
     for model in models:
 
 
-        capabilities = getattr(
-            model,
-            "capabilities",
+        logical_name = (
+            get_logical_name(
+                model
+            )
+        )
+
+
+        groups.setdefault(
+            logical_name,
             []
         )
 
 
-        for capability in capabilities:
-
-
-            if capability in groups:
-
-                groups[capability].append(model)
-
-
-
-    logical_models = []
+        groups[
+            logical_name
+        ].append(
+            model
+        )
 
 
 
-    # --------------------------------------------------------
-    # 按 score 排序
-    # --------------------------------------------------------
+    result = []
+
+
 
     for name, items in groups.items():
 
 
-        if not items:
-            continue
-
-
-
+        # 按 score 排序
         items.sort(
             key=lambda x:
-            getattr(
-                x,
-                "score",
-                0
-            ),
-            reverse=True
+                getattr(
+                    x,
+                    "score",
+                    0
+                )
+                or 0,
+
+            reverse=True,
         )
 
 
+        logical_model = LogicalModel(
 
-        logical_models.append(
+            name=name,
 
-            LogicalModel(
 
-                name=name,
+            models=items,
 
-                models=items,
 
-                strategy="fallback",
-
-                capabilities=[
-                    name
-                ],
-
-            )
+            strategy="fallback",
 
         )
 
 
-
-    return logical_models
-
-
-
-# ============================================================
-# 对外入口
-# ============================================================
+        result.append(
+            logical_model
+        )
 
 
-def normalize(
-    models: List[ModelInfo],
-) -> List[LogicalModel]:
-    """
-    normalizer 主入口
 
-    detail_parser.py 调用：
-
-        logical_models = normalize(models)
-
-    """
-
-    return build_logical_models(models)
+    return result

@@ -1,37 +1,56 @@
 """
 config_builder.py
 
-LiteLLM config.yaml 生成器
+LiteLLM config.yaml生成器
+
 
 输入:
-    List[LogicalModel]
+
+List[LogicalModel]
+
 
 输出:
-    LiteLLM YAML 配置
+
+LiteLLM YAML
+
 
 当前模型体系:
 
 LogicalModel
+
     name
+
     models[]
-    strategy
-    capabilities
+
 
 
 ModelInfo
+
     name
-    model
+
+    model_id
+
     provider
+
     api_base
-    api_key
-    capabilities
+
+    api_key_env
+
     score
+
 """
 
 
-from typing import List, Dict, Any
+from typing import (
+    List,
+    Dict,
+    Any,
+)
+
+from pathlib import Path
 
 import yaml
+
 
 from models import (
     LogicalModel,
@@ -41,152 +60,161 @@ from models import (
 
 
 # ============================================================
-# Provider -> LiteLLM model name 转换
+# LiteLLM模型名称
 # ============================================================
 
 
 def build_litellm_model_name(
     model: ModelInfo,
 ) -> str:
-    """
-    构造 LiteLLM provider/model 格式
 
-    例如:
-
-    openrouter:
-        openrouter/qwen/qwen3
-
-    nvidia:
-        nvidia/nvidia/nemotron
-
-    """
 
     provider = getattr(
         model,
         "provider",
-        ""
-    )
-
-    model_name = getattr(
-        model,
-        "model",
-        None
+        "",
     )
 
 
-    if not model_name:
+    model_id = (
 
-        model_name = getattr(
+        getattr(
             model,
-            "name",
-            ""
+            "model_id",
+            None,
         )
 
+        or
 
-    if "/" in model_name:
+        getattr(
+            model,
+            "name",
+            None,
+        )
 
-        return model_name
+        or
+
+        "unknown"
+
+    )
+
+
+    if "/" in model_id:
+
+        return model_id
+
 
 
     if provider:
 
-        return f"{provider}/{model_name}"
+        return (
+            provider
+            +
+            "/"
+            +
+            model_id
+        )
 
 
-    return model_name
+    return model_id
 
 
 
 # ============================================================
-# 单模型转换
+# 单个Deployment
 # ============================================================
 
 
 def build_model_entry(
     model: ModelInfo,
 ) -> Dict[str, Any]:
-    """
-    ModelInfo -> LiteLLM model_list entry
-    """
 
-    litellm_model = build_litellm_model_name(
-        model
+
+    litellm_model = (
+        build_litellm_model_name(
+            model
+        )
     )
 
 
     params = {
 
-        "model": litellm_model,
+
+        "model":
+
+            litellm_model,
+
 
     }
+
 
 
     api_base = getattr(
         model,
         "api_base",
-        None
+        None,
     )
+
 
     if api_base:
 
-        params["api_base"] = api_base
+        params[
+            "api_base"
+        ] = api_base
 
 
 
-    api_key = getattr(
+    api_key_env = getattr(
         model,
-        "api_key",
-        None
+        "api_key_env",
+        None,
     )
 
 
-    if api_key:
+    if api_key_env:
 
-        params["api_key"] = api_key
+        params[
+            "api_key"
+        ] = (
+            "os.environ/"
+            +
+            api_key_env
+        )
 
 
 
     return {
 
+
         "model_name":
+
             litellm_model,
 
 
         "litellm_params":
+
             params,
+
 
     }
 
 
 
 # ============================================================
-# LogicalModel 转换
+# LogicalModel
 # ============================================================
 
 
 def build_logical_model_entries(
     logical_model: LogicalModel,
-) -> List[Dict[str, Any]]:
-    """
-    LogicalModel.models
-
-    生成多个 LiteLLM deployment
-
-
-    不再使用:
-
-        primary_model
-
-        providers
-
-        provider_model
-
-    """
+):
 
     entries = []
 
 
+
     for model in logical_model.models:
+
 
         entries.append(
 
@@ -197,23 +225,23 @@ def build_logical_model_entries(
         )
 
 
+
     return entries
 
 
 
 # ============================================================
-# YAML 构建
+# Config
 # ============================================================
 
 
 def build_config(
     logical_models: List[LogicalModel],
-) -> Dict[str, Any]:
-    """
-    生成完整 LiteLLM 配置
-    """
+):
+
 
     model_list = []
+
 
 
     for logical_model in logical_models:
@@ -231,32 +259,39 @@ def build_config(
 
     return {
 
+
         "model_list":
+
             model_list,
+
 
 
         "litellm_settings": {
 
-            "drop_params": True
+
+            "drop_params":
+
+                True
+
 
         }
+
 
     }
 
 
 
 # ============================================================
-# 保存 YAML
+# Save
 # ============================================================
 
 
 def save_config(
     logical_models: List[LogicalModel],
-    output_file: str = "config.generated.yaml",
+
+    output_file="config.generated.yaml",
+
 ):
-    """
-    输出 YAML 文件
-    """
 
 
     config = build_config(
@@ -264,10 +299,14 @@ def save_config(
     )
 
 
+
     with open(
         output_file,
+
         "w",
+
         encoding="utf-8",
+
     ) as f:
 
 
