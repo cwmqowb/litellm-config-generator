@@ -1,42 +1,31 @@
 """
-Model normalizer
+normalizer.py
 
-负责：
+模型标准化模块
 
-1. 模型名称标准化
-2. Provider namespace 清理
-3. free 标识清理
-4. 品牌模型归一
-5. ModelInfo 标准化
-6. 模型评分
-7. LogicalModel 聚合
-
+职责：
+1. 将 detail_parser 输出的 ModelInfo 列表标准化
+2. 根据模型能力生成 LogicalModel
+3. 不负责 LiteLLM YAML 生成
 
 数据流：
 
-ModelInfo
-    |
-    v
-normalize_model()
-    |
-    v
-ModelInfo
-    |
-    v
-build_logical_models()
-    |
-    v
-LogicalModel
-
+detail_parser
+        |
+        v
+    ModelInfo[]
+        |
+        v
+    normalizer
+        |
+        v
+    LogicalModel[]
+        |
+        v
+config_builder
 """
 
-
-from __future__ import annotations
-
-
-import re
-from typing import Dict, List
-
+from typing import List, Dict
 
 from models import (
     ModelInfo,
@@ -44,558 +33,303 @@ from models import (
 )
 
 
+# ============================================================
+# 默认能力关键词
+# ============================================================
 
-# =====================================================
-# Vendor namespace
-# =====================================================
-
-
-VENDOR_PREFIXES = {
-
-    "z-ai",
-    "zhipuai",
-    "glm",
-
-    "deepseek",
-    "deepseek-ai",
-
-    "moonshot",
-    "moonshotai",
-
-    "qwen",
-    "alibaba",
-
-    "google",
+VISION_KEYWORDS = [
+    "vision",
+    "vl",
+    "image",
+    "multimodal",
+    "llava",
+    "qwen-vl",
+    "gpt-4o",
     "gemini",
-
-    "meta",
-    "meta-llama",
-
-    "mistralai",
-
-    "nvidia",
-
-}
-
-
-
-# =====================================================
-# Provider suffix
-# =====================================================
-
-
-PROVIDER_SUFFIX = [
-
-    "__nvidia",
-
-    "__nvidia_nim",
-
-    "__openrouter",
-
-    "__github",
-
-    "__github_models",
-
-    "__modelscope",
-
-    "__sambanova",
-
-    "__agnes",
-
-    "__kilo",
-
 ]
 
 
-
-# =====================================================
-# Free suffix
-# =====================================================
-
-
-FREE_SUFFIX = [
-
-    ":free",
-
-    "-free",
-
-    "_free",
-
-    "(free)",
-
-    "[free]",
-
+REASONING_KEYWORDS = [
+    "reasoning",
+    "think",
+    "r1",
+    "o1",
+    "o3",
+    "deepseek-r1",
+    "qwq",
 ]
 
 
+CHAT_KEYWORDS = [
+    "chat",
+    "instruct",
+    "chatgpt",
+    "assistant",
+]
 
-# =====================================================
-# text cleanup
-# =====================================================
 
+# ============================================================
+# 基础能力判断
+# ============================================================
 
-def clean_text(
-    value: str,
-) -> str:
 
-
-    if not value:
-
-        return ""
-
-
-    value = (
-        str(value)
-        .strip()
-        .lower()
-    )
-
-
-    value = value.replace(
-        " ",
-        "-"
-    )
-
-
-    return value
-
-
-
-# =====================================================
-# remove vendor
-# =====================================================
-
-
-def remove_vendor_prefix(
-    name: str,
-) -> str:
-
-
-    if "/" not in name:
-
-        return name
-
-
-
-    parts = name.split("/")
-
-
-    if len(parts) != 2:
-
-        return name
-
-
-
-    prefix, model = parts
-
-
-
-    if prefix.lower() in VENDOR_PREFIXES:
-
-        return model
-
-
-
-    return model
-
-
-
-# =====================================================
-# remove provider suffix
-# =====================================================
-
-
-def remove_provider_suffix(
-    name: str,
-) -> str:
-
-
-    for suffix in PROVIDER_SUFFIX:
-
-        name = name.replace(
-            suffix,
-            ""
-        )
-
-
-    return name
-
-
-
-# =====================================================
-# remove free tag
-# =====================================================
-
-
-def remove_free_tag(
-    name: str,
-) -> str:
-
-
-    for suffix in FREE_SUFFIX:
-
-        name = name.replace(
-            suffix,
-            ""
-        )
-
-
-    name = re.sub(
-        r"\s*\(free\)",
-        "",
-        name,
-        flags=re.I
-    )
-
-
-    return name
-
-
-
-# =====================================================
-# brand normalize
-# =====================================================
-
-
-def normalize_brand(
-    name: str,
-) -> str:
-
-
-    alias = {
-
-
-        "glm5.2":
-            "glm-5.2",
-
-
-        "glm-5-2":
-            "glm-5.2",
-
-
-        "deepseekv4":
-            "deepseek-v4",
-
-
-        "deepseekv4flash":
-            "deepseek-v4-flash",
-
-
-        "qwen3":
-            "qwen3",
-
-
-    }
-
-
-    key = (
-
-        name
-        .lower()
-        .replace(
-            "-",
-            ""
-        )
-        .replace(
-            "_",
-            ""
-        )
-        .replace(
-            ".",
-            ""
-        )
-
-    )
-
-
-    return alias.get(
-        key,
-        name
-    )
-
-
-
-# =====================================================
-# public name normalize
-# =====================================================
-
-
-def normalize_model_name(
-    name: str,
-) -> str:
-
-
-    if not name:
-
-        return ""
-
-
-
-    name = clean_text(
-        name
-    )
-
-
-    name = remove_vendor_prefix(
-        name
-    )
-
-
-    name = remove_provider_suffix(
-        name
-    )
-
-
-    name = remove_free_tag(
-        name
-    )
-
-
-    name = normalize_brand(
-        name
-    )
-
-
-
-    name = re.sub(
-        r"_+",
-        "-",
-        name
-    )
-
-
-    name = re.sub(
-        r"-+",
-        "-",
-        name
-    )
-
-
-    return name.strip("-")
-
-
-
-# =====================================================
-# ModelInfo normalize
-# =====================================================
-
-
-def normalize_model(
-    model: ModelInfo,
-) -> ModelInfo:
-
-
+def detect_capabilities(model: ModelInfo) -> List[str]:
     """
-    标准化 ModelInfo
+    根据模型名称和已有能力判断模型能力
 
-    不创建新对象
-    保留 metadata
+    返回:
+        [
+            "chat",
+            "vision",
+            "reasoning"
+        ]
     """
 
+    capabilities = set()
 
-    model.name = normalize_model_name(
-        model.name
-    )
 
+    # --------------------------------------------------------
+    # 优先使用 parser 已解析能力
+    # --------------------------------------------------------
 
-    model.model_id = normalize_model_name(
-        model.model_id
-    )
+    existing = getattr(model, "capabilities", None)
 
+    if existing:
 
-    return model
+        if isinstance(existing, list):
+            capabilities.update(existing)
 
+        elif isinstance(existing, str):
+            capabilities.add(existing)
 
 
-# =====================================================
-# score calculation
-# =====================================================
 
+    # --------------------------------------------------------
+    # 模型名称辅助判断
+    # --------------------------------------------------------
 
-def calculate_model_score(
-    model: ModelInfo,
-) -> int:
+    text = " ".join(
+        [
+            str(getattr(model, "name", "")),
+            str(getattr(model, "model", "")),
+        ]
+    ).lower()
 
 
-    score = 50
 
+    for keyword in VISION_KEYWORDS:
 
+        if keyword in text:
+            capabilities.add("vision")
+            break
 
-    provider = (
-        model.provider
-        .lower()
-        if model.provider
-        else ""
-    )
 
 
-    provider_bonus = {
+    for keyword in REASONING_KEYWORDS:
 
+        if keyword in text:
+            capabilities.add("reasoning")
+            break
 
-        "nvidia nim": 15,
 
-        "nvidia": 15,
 
+    # 默认所有 LLM 至少支持 chat
 
-        "modelscope": 12,
+    if not capabilities:
 
+        capabilities.add("chat")
 
-        "sambanova": 12,
+    else:
 
+        # 非纯 embedding/rerank 模型默认加入 chat
 
-        "github models": 10,
+        if (
+            "embedding" not in text
+            and "rerank" not in text
+        ):
+            capabilities.add("chat")
 
 
-        "agnes ai": 10,
 
+    return sorted(list(capabilities))
 
-        "openrouter": 8,
 
-    }
 
+# ============================================================
+# 模型标准化
+# ============================================================
 
 
-    score += provider_bonus.get(
-        provider,
-        0
-    )
+def normalize_models(
+    models: List[ModelInfo],
+) -> List[ModelInfo]:
+    """
+    标准化模型字段
 
+    不创建新对象，
+    只补充缺失字段
+    """
 
+    normalized = []
 
-    caps = model.capabilities
 
+    for model in models:
 
 
-    if caps:
+        # ----------------------------------------------------
+        # capabilities
+        # ----------------------------------------------------
 
+        capabilities = detect_capabilities(model)
 
-        if caps.reasoning:
 
-            score += 10
+        if hasattr(model, "capabilities"):
 
+            model.capabilities = capabilities
 
 
-        if caps.vision:
 
-            score += 5
+        # ----------------------------------------------------
+        # score 默认值
+        # ----------------------------------------------------
 
+        if not getattr(model, "score", None):
 
+            model.score = 0
 
-        if caps.tool_calling:
 
-            score += 5
 
+        normalized.append(model)
 
 
-    if (
-        model.context_window
-        and
-        model.context_window >= 128000
-    ):
 
-        score += 10
+    return normalized
 
 
-    elif (
-        model.context_window
-        and
-        model.context_window >= 32000
-    ):
 
-        score += 5
-
-
-
-    return min(
-        score,
-        100
-    )
-
-
-
-# =====================================================
-# logical model builder
-# =====================================================
+# ============================================================
+# Logical Model 构建
+# ============================================================
 
 
 def build_logical_models(
     models: List[ModelInfo],
-) -> Dict[str, LogicalModel]:
+) -> List[LogicalModel]:
+    """
+    创建逻辑模型
+
+    输出:
+
+    LogicalModel(
+        name="chat",
+        models=[
+            ModelInfo,
+            ModelInfo
+        ],
+        strategy="fallback"
+    )
+
+    """
+
+    models = normalize_models(models)
 
 
-    logical_models = {}
+    groups: Dict[str, List[ModelInfo]] = {
+
+        "chat": [],
+        "vision": [],
+        "reasoning": [],
+
+    }
 
 
 
     for model in models:
 
 
-        model = normalize_model(
-            model
+        capabilities = getattr(
+            model,
+            "capabilities",
+            []
         )
 
 
-        model.score = (
-            calculate_model_score(
-                model
-            )
-        )
+        for capability in capabilities:
+
+
+            if capability in groups:
+
+                groups[capability].append(model)
 
 
 
-        key = model.name
+    logical_models = []
 
 
 
-        if not key:
+    # --------------------------------------------------------
+    # 按 score 排序
+    # --------------------------------------------------------
 
+    for name, items in groups.items():
+
+
+        if not items:
             continue
 
 
 
-        if key not in logical_models:
-
-
-            logical_models[key] = LogicalModel(
-
-                name=key,
-
-                models=[],
-
-            )
-
-
-
-        logical_models[key].models.append(
-            model
-        )
-
-
-
-    # 排序
-
-    for logical in logical_models.values():
-
-
-        logical.models.sort(
-
-            key=lambda m:
-
-                m.score
-                or 0,
-
+        items.sort(
+            key=lambda x:
+            getattr(
+                x,
+                "score",
+                0
+            ),
             reverse=True
-
         )
 
 
-        if logical.models:
 
+        logical_models.append(
 
-            logical.primary_model = (
-                logical.models[0]
+            LogicalModel(
+
+                name=name,
+
+                models=items,
+
+                strategy="fallback",
+
+                capabilities=[
+                    name
+                ],
+
             )
+
+        )
 
 
 
     return logical_models
+
+
+
+# ============================================================
+# 对外入口
+# ============================================================
+
+
+def normalize(
+    models: List[ModelInfo],
+) -> List[LogicalModel]:
+    """
+    normalizer 主入口
+
+    detail_parser.py 调用：
+
+        logical_models = normalize(models)
+
+    """
+
+    return build_logical_models(models)
