@@ -1,14 +1,14 @@
 """
 LiteLLM Config Builder
 
-职责：
+职责:
 
 1. Logical Model 输出
 2. Provider Deployment 输出
 3. Router 配置生成
 4. Capability / Metadata 输出
 
-生成：
+生成:
 
 config.generated.yaml
 
@@ -30,7 +30,6 @@ class LiteLLMConfigBuilder:
     """
     将 LogicalModel 转换为 LiteLLM config.yaml
     """
-
 
     def build(
         self,
@@ -63,22 +62,37 @@ class LiteLLMConfigBuilder:
 
 
         #
-        # deployment 计数
+        # 记录 logical model deployment
         #
+        logical_deployments: dict[str, list[str]] = {}
+
         deployment_counter = defaultdict(int)
 
 
         #
-        # 记录同 logical model 的 deployment
+        # 生成 deployment
         #
-        logical_deployments = {}
-
-
         for logical in logical_models:
 
             deployments = []
 
-            for provider_model in logical.providers:
+
+            #
+            # 按 score 排序
+            #
+            providers = sorted(
+                logical.providers,
+                key=lambda x: getattr(
+                    x,
+                    "score",
+                    0
+                ),
+                reverse=True,
+            )
+
+
+            for provider_model in providers:
+
 
                 provider_key = (
                     provider_model.provider
@@ -86,10 +100,12 @@ class LiteLLMConfigBuilder:
                     .replace(" ", "_")
                 )
 
+
                 counter_key = (
                     f"{logical.name}"
                     f"__{provider_key}"
                 )
+
 
                 deployment_counter[counter_key] += 1
 
@@ -121,49 +137,37 @@ class LiteLLMConfigBuilder:
 
 
         #
-        # Router fallback
-        #
-        #
-        # LiteLLM 推荐：
-        #
-        # 同一个 model_name 多 deployment
-        #
-        # 不创建 provider 污染模型名
+        # fallback 配置
         #
         fallbacks = []
 
 
-        for logical_name in logical_deployments:
+        for logical_name, deployments in logical_deployments.items():
 
-            #
-            # 只有一个 deployment
-            # 不需要 fallback
-            #
-            if (
-                len(
-                    logical_deployments[
-                        logical_name
-                    ]
-                )
-                <= 1
-            ):
+
+            if len(deployments) <= 1:
                 continue
 
 
             #
-            # 同 logical model fallback
+            # 第一个为主模型
+            # 后续为备用
             #
+            primary = deployments[0]
+
+            backups = deployments[1:]
+
+
             fallbacks.append(
                 {
-                    logical_name:
-                    [
-                        logical_name
-                    ]
+                    primary:
+                    backups
                 }
             )
 
 
         if fallbacks:
+
             config[
                 "router_settings"
             ][
@@ -173,14 +177,13 @@ class LiteLLMConfigBuilder:
 
 
         #
-        # Capability 信息
+        # capability 信息
         #
         if capability_map:
 
             config[
                 "model_groups"
             ] = capability_map
-
 
 
         return config
@@ -219,7 +222,7 @@ class LiteLLMConfigBuilder:
         self,
         model: ProviderModel,
         deployment_name: str,
-    ):
+    ) -> dict[str, Any]:
 
 
         tags = []
@@ -261,32 +264,18 @@ class LiteLLMConfigBuilder:
 
 
         #
-        # LiteLLM model 标准化
+        # LiteLLM model name
         #
-        litellm_model = model.model_id
-
-
-        if not (
-            litellm_model.startswith(
-                "openai/"
-            )
-            or litellm_model.startswith(
-                "openrouter/"
-            )
-        ):
-
-            litellm_model = (
-                f"openai/{litellm_model}"
-            )
-
+        litellm_model = self._normalize_model_name(
+            model
+        )
 
 
         return {
 
+
             #
-            # 关键：
-            #
-            # logical model 名称
+            # logical model
             #
             "model_name":
                 model.logical_name,
@@ -297,19 +286,21 @@ class LiteLLMConfigBuilder:
                 "model":
                     litellm_model,
 
+
                 "api_base":
                     model.api_base,
+
 
                 "api_key":
                     (
                         f"os.environ/"
                         f"{model.api_key_env}"
                     ),
-
             },
 
 
             "model_info": {
+
 
                 "deployment_name":
                     deployment_name,
@@ -323,18 +314,93 @@ class LiteLLMConfigBuilder:
                     model.logical_name,
 
 
+                "original_model":
+                    model.model_id,
+
+
+                #
+                # 排序评分
+                #
+                "score":
+                    getattr(
+                        model,
+                        "score",
+                        0
+                    ),
+
+
                 "context_window":
-                    model.context_window,
+                    getattr(
+                        model,
+                        "context_window",
+                        None
+                    ),
 
 
                 "max_output_tokens":
-                    model.max_output_tokens,
+                    getattr(
+                        model,
+                        "max_output_tokens",
+                        None
+                    ),
 
 
                 "tags":
                     tags,
 
-
             },
 
         }
+
+
+
+    def _normalize_model_name(
+        self,
+        model: ProviderModel,
+    ) -> str:
+
+
+        model_id = model.model_id
+
+
+        #
+        # 已经有 provider 前缀
+        #
+        if "/" in model_id:
+
+            return model_id
+
+
+
+        provider = (
+            model.provider
+            .lower()
+        )
+
+
+        #
+        # NVIDIA NIM
+        #
+        if "nvidia" in provider:
+
+            return (
+                f"nvidia/{model_id}"
+            )
+
+
+        #
+        # OpenRouter
+        #
+        if "openrouter" in provider:
+
+            return (
+                f"openrouter/{model_id}"
+            )
+
+
+        #
+        # 其他 OpenAI Compatible provider
+        #
+        return (
+            f"openai/{model_id}"
+        )

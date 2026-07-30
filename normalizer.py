@@ -1,34 +1,54 @@
 """
-Model name normalizer
+Model normalizer
 
 负责：
 
-1. 品牌模型名称统一
-2. Provider 后缀清理
+1. 模型名称标准化
+2. Provider namespace 清理
 3. free 标识清理
-4. 厂商 namespace 清理
-
-例如：
-
-z-ai/glm-5.2
-        |
-        v
-glm-5.2
+4. 品牌模型归一
+5. ModelInfo 标准化
+6. 模型评分
+7. LogicalModel 聚合
 
 
-deepseek-ai/deepseek-v4-flash
-        |
-        v
-deepseek-v4-flash
+数据流：
+
+ModelInfo
+    |
+    v
+normalize_model()
+    |
+    v
+ModelInfo
+    |
+    v
+build_logical_models()
+    |
+    v
+LogicalModel
+
 """
+
 
 from __future__ import annotations
 
+
 import re
+from typing import Dict, List
+
+
+from models import (
+    ModelInfo,
+    LogicalModel,
+)
 
 
 
-# 厂商 namespace
+# =====================================================
+# Vendor namespace
+# =====================================================
+
 
 VENDOR_PREFIXES = {
 
@@ -36,11 +56,11 @@ VENDOR_PREFIXES = {
     "zhipuai",
     "glm",
 
-    "deepseek-ai",
     "deepseek",
+    "deepseek-ai",
 
-    "moonshotai",
     "moonshot",
+    "moonshotai",
 
     "qwen",
     "alibaba",
@@ -53,29 +73,16 @@ VENDOR_PREFIXES = {
 
     "mistralai",
 
+    "nvidia",
+
 }
 
 
 
-# 不影响语义的后缀
+# =====================================================
+# Provider suffix
+# =====================================================
 
-REMOVE_SUFFIX = [
-
-    ":free",
-
-    "-free",
-
-    "_free",
-
-    "(free)",
-
-    "[free]",
-
-]
-
-
-
-# provider 污染
 
 PROVIDER_SUFFIX = [
 
@@ -101,25 +108,62 @@ PROVIDER_SUFFIX = [
 
 
 
+# =====================================================
+# Free suffix
+# =====================================================
+
+
+FREE_SUFFIX = [
+
+    ":free",
+
+    "-free",
+
+    "_free",
+
+    "(free)",
+
+    "[free]",
+
+]
+
+
+
+# =====================================================
+# text cleanup
+# =====================================================
+
+
 def clean_text(
     value: str,
 ) -> str:
+
 
     if not value:
 
         return ""
 
-    value = value.strip()
 
-    value = value.lower()
+    value = (
+        str(value)
+        .strip()
+        .lower()
+    )
+
 
     value = value.replace(
         " ",
-        "-",
+        "-"
     )
+
 
     return value
 
+
+
+# =====================================================
+# remove vendor
+# =====================================================
 
 
 def remove_vendor_prefix(
@@ -132,9 +176,8 @@ def remove_vendor_prefix(
         return name
 
 
-    parts = name.split(
-        "/"
-    )
+
+    parts = name.split("/")
 
 
     if len(parts) != 2:
@@ -142,47 +185,24 @@ def remove_vendor_prefix(
         return name
 
 
+
     prefix, model = parts
 
 
-    if (
-        prefix.lower()
-        in VENDOR_PREFIXES
-    ):
+
+    if prefix.lower() in VENDOR_PREFIXES:
 
         return model
 
 
-    #
-    # 默认保留最后一段
-    #
+
     return model
 
 
 
-def remove_free_tag(
-    name: str,
-) -> str:
-
-
-    for suffix in REMOVE_SUFFIX:
-
-        name = name.replace(
-            suffix,
-            "",
-        )
-
-
-    name = re.sub(
-        r"\s*\(free\)",
-        "",
-        name,
-        flags=re.I,
-    )
-
-
-    return name
-
+# =====================================================
+# remove provider suffix
+# =====================================================
 
 
 def remove_provider_suffix(
@@ -194,12 +214,110 @@ def remove_provider_suffix(
 
         name = name.replace(
             suffix,
-            "",
+            ""
         )
 
 
     return name
 
+
+
+# =====================================================
+# remove free tag
+# =====================================================
+
+
+def remove_free_tag(
+    name: str,
+) -> str:
+
+
+    for suffix in FREE_SUFFIX:
+
+        name = name.replace(
+            suffix,
+            ""
+        )
+
+
+    name = re.sub(
+        r"\s*\(free\)",
+        "",
+        name,
+        flags=re.I
+    )
+
+
+    return name
+
+
+
+# =====================================================
+# brand normalize
+# =====================================================
+
+
+def normalize_brand(
+    name: str,
+) -> str:
+
+
+    alias = {
+
+
+        "glm5.2":
+            "glm-5.2",
+
+
+        "glm-5-2":
+            "glm-5.2",
+
+
+        "deepseekv4":
+            "deepseek-v4",
+
+
+        "deepseekv4flash":
+            "deepseek-v4-flash",
+
+
+        "qwen3":
+            "qwen3",
+
+
+    }
+
+
+    key = (
+
+        name
+        .lower()
+        .replace(
+            "-",
+            ""
+        )
+        .replace(
+            "_",
+            ""
+        )
+        .replace(
+            ".",
+            ""
+        )
+
+    )
+
+
+    return alias.get(
+        key,
+        name
+    )
+
+
+
+# =====================================================
+# public name normalize
+# =====================================================
 
 
 def normalize_model_name(
@@ -212,49 +330,44 @@ def normalize_model_name(
         return ""
 
 
+
     name = clean_text(
         name
     )
 
 
-    #
-    # 去 namespace
-    #
     name = remove_vendor_prefix(
         name
     )
 
 
-    #
-    # 去 provider
-    #
     name = remove_provider_suffix(
         name
     )
 
 
-    #
-    # 去 free
-    #
     name = remove_free_tag(
         name
     )
 
 
-    #
-    # 清理连续符号
-    #
+    name = normalize_brand(
+        name
+    )
+
+
+
     name = re.sub(
-        r"[_]+",
+        r"_+",
         "-",
-        name,
+        name
     )
 
 
     name = re.sub(
         r"-+",
         "-",
-        name,
+        name
     )
 
 
@@ -262,16 +375,227 @@ def normalize_model_name(
 
 
 
-def normalize_brand(
-    name: str,
-) -> str:
+# =====================================================
+# ModelInfo normalize
+# =====================================================
+
+
+def normalize_model(
+    model: ModelInfo,
+) -> ModelInfo:
+
 
     """
-    alias
+    标准化 ModelInfo
 
-    保留兼容旧调用
+    不创建新对象
+    保留 metadata
     """
 
-    return normalize_model_name(
-        name
+
+    model.name = normalize_model_name(
+        model.name
     )
+
+
+    model.model_id = normalize_model_name(
+        model.model_id
+    )
+
+
+    return model
+
+
+
+# =====================================================
+# score calculation
+# =====================================================
+
+
+def calculate_model_score(
+    model: ModelInfo,
+) -> int:
+
+
+    score = 50
+
+
+
+    provider = (
+        model.provider
+        .lower()
+        if model.provider
+        else ""
+    )
+
+
+    provider_bonus = {
+
+
+        "nvidia nim": 15,
+
+        "nvidia": 15,
+
+
+        "modelscope": 12,
+
+
+        "sambanova": 12,
+
+
+        "github models": 10,
+
+
+        "agnes ai": 10,
+
+
+        "openrouter": 8,
+
+    }
+
+
+
+    score += provider_bonus.get(
+        provider,
+        0
+    )
+
+
+
+    caps = model.capabilities
+
+
+
+    if caps:
+
+
+        if caps.reasoning:
+
+            score += 10
+
+
+
+        if caps.vision:
+
+            score += 5
+
+
+
+        if caps.tool_calling:
+
+            score += 5
+
+
+
+    if (
+        model.context_window
+        and
+        model.context_window >= 128000
+    ):
+
+        score += 10
+
+
+    elif (
+        model.context_window
+        and
+        model.context_window >= 32000
+    ):
+
+        score += 5
+
+
+
+    return min(
+        score,
+        100
+    )
+
+
+
+# =====================================================
+# logical model builder
+# =====================================================
+
+
+def build_logical_models(
+    models: List[ModelInfo],
+) -> Dict[str, LogicalModel]:
+
+
+    logical_models = {}
+
+
+
+    for model in models:
+
+
+        model = normalize_model(
+            model
+        )
+
+
+        model.score = (
+            calculate_model_score(
+                model
+            )
+        )
+
+
+
+        key = model.name
+
+
+
+        if not key:
+
+            continue
+
+
+
+        if key not in logical_models:
+
+
+            logical_models[key] = LogicalModel(
+
+                name=key,
+
+                models=[],
+
+            )
+
+
+
+        logical_models[key].models.append(
+            model
+        )
+
+
+
+    # 排序
+
+    for logical in logical_models.values():
+
+
+        logical.models.sort(
+
+            key=lambda m:
+
+                m.score
+                or 0,
+
+            reverse=True
+
+        )
+
+
+        if logical.models:
+
+
+            logical.primary_model = (
+                logical.models[0]
+            )
+
+
+
+    return logical_models
