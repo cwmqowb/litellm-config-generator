@@ -1,42 +1,58 @@
 """
-freellm model detail parser
+freellm detail parser
 
-Parse model detail page:
+HTML:
 
-- model id
-- logical name
-- base url
-- api format
-- context window
-- max output tokens
-- capabilities
-- tags
+detail.html
 
-The parser is intentionally tolerant because freellm
-frontend structure may change.
+Output:
+
+{
+    logical_name,
+    model_id,
+    base_url,
+    api_format,
+    context_window,
+    max_output_tokens,
+    capabilities,
+    tags
+}
+
 """
 
-import re
+from __future__ import annotations
+
+
+import json
 import logging
-from typing import Dict, Any, List
+import re
+
+from typing import Any, Dict, List
+
 
 from bs4 import BeautifulSoup
+
 
 
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------
-# text helpers
-# ---------------------------------------------------------
 
-def clean_text(value: Any) -> str:
-    """
-    Normalize text.
-    """
+
+# =====================================================
+# text utils
+# =====================================================
+
+
+def clean_text(
+    value: Any
+) -> str:
+
 
     if value is None:
+
         return ""
+
 
     return re.sub(
         r"\s+",
@@ -45,303 +61,121 @@ def clean_text(value: Any) -> str:
     ).strip()
 
 
-def normalize_number(value: str):
+
+
+def remove_copy_suffix(
+    value: str
+) -> str:
     """
-    Convert:
+    freellm copy button pollution
 
-    1M
-    128K
-    32768
+    Example:
 
-    to integer.
+    https://xxx Copy
 
     """
 
     if not value:
+
+        return value
+
+
+    value = re.sub(
+        r"\s+Copy$",
+        "",
+        value,
+        flags=re.I
+    )
+
+
+    return value.strip()
+
+
+
+
+def normalize_number(
+    value: str
+):
+
+
+    if not value:
+
         return None
 
-    value = value.upper().replace(",", "").strip()
+
+
+    value = (
+
+        str(value)
+        .upper()
+        .replace(
+            ",",
+            ""
+        )
+        .strip()
+
+    )
+
 
     try:
 
-        if value.endswith("M"):
-            return int(float(value[:-1]) * 1024 * 1024)
 
-        if value.endswith("K"):
-            return int(float(value[:-1]) * 1024)
-
-        return int(float(value))
-
-    except Exception:
-        return None
+        if value.endswith(
+            "M"
+        ):
 
 
-# ---------------------------------------------------------
-# safe field extraction
-# ---------------------------------------------------------
-
-def find_field_value(
-    soup: BeautifulSoup,
-    labels: List[str],
-) -> str:
-    """
-    Extract value near label.
-
-    Avoid global regex matching.
-
-    Old:
-
-        soup.find(string=re.compile("Model"))
-
-    caused:
-
-        Models
-        Free Models
-        Rate Limits
-
-    pollution.
-
-    """
-
-    for label in labels:
-
-        # exact text nodes
-        nodes = soup.find_all(
-            string=lambda x:
-                x and clean_text(x).lower() == label.lower()
-        )
-
-        for node in nodes:
-
-            parent = node.parent
-
-            if not parent:
-                continue
-
-
-            # sibling value
-
-            sibling = parent.find_next_sibling()
-
-            if sibling:
-
-                value = clean_text(
-                    sibling.get_text(" ", strip=True)
+            return int(
+                float(
+                    value[:-1]
                 )
-
-                if value:
-                    return value
-
-
-            # parent container
-
-            text = clean_text(
-                parent.get_text(
-                    " ",
-                    strip=True
-                )
+                *
+                1024
+                *
+                1024
             )
 
 
-            if text.lower().startswith(
-                label.lower()
-            ):
+        if value.endswith(
+            "K"
+        ):
 
-                value = clean_text(
-                    text[
-                        len(label):
-                    ]
+
+            return int(
+                float(
+                    value[:-1]
                 )
-
-                if value:
-                    return value
-
-
-            # nearby element
-
-            nearby = parent.find_next()
-
-            if nearby:
-
-                value = clean_text(
-                    nearby.get_text(
-                        " ",
-                        strip=True
-                    )
-                )
-
-                if (
-                    value
-                    and value.lower()
-                    != label.lower()
-                ):
-                    return value
+                *
+                1024
+            )
 
 
-    return ""
+        return int(
+            float(value)
+        )
+
+
+    except Exception:
+
+
+        return None
 
 
 
-# ---------------------------------------------------------
-# model name cleaning
-# ---------------------------------------------------------
-
-def normalize_model_name(
-    name: str
-) -> str:
-
-    if not name:
-        return ""
 
 
-    bad_keywords = [
-        "free",
-        "api key",
-        "rate limits",
-        "models",
-        "model count",
-    ]
+# =====================================================
+# next data
+# =====================================================
 
 
-    lower = name.lower()
-
-
-    for keyword in bad_keywords:
-
-        if keyword in lower:
-
-            return ""
-
-
-    return clean_text(name)
-
-
-
-# ---------------------------------------------------------
-# capability parser
-# ---------------------------------------------------------
-
-def parse_capabilities(
-    text: str
-) -> List[str]:
-
-    if not text:
-        return []
-
-
-    text = text.lower()
-
-    result = set()
-
-
-    mapping = {
-
-        "vision":
-            [
-                "vision",
-                "image",
-                "multimodal",
-            ],
-
-        "reasoning":
-            [
-                "reasoning",
-                "think",
-                "cot",
-                "r1",
-            ],
-
-        "coding":
-            [
-                "code",
-                "coder",
-                "programming",
-            ],
-
-        "embedding":
-            [
-                "embedding",
-                "embed",
-            ],
-
-        "rerank":
-            [
-                "rerank",
-                "ranking",
-            ],
-
-        "image":
-            [
-                "image generation",
-                "text to image",
-                "diffusion",
-            ],
-
-        "audio":
-            [
-                "audio",
-                "speech",
-                "voice",
-            ],
-
-        "chat":
-            [
-                "chat",
-                "instruction",
-                "conversation",
-            ],
-    }
-
-
-    for capability, keywords in mapping.items():
-
-        for keyword in keywords:
-
-            if keyword in text:
-
-                result.add(capability)
-                break
-
-
-    return sorted(result)
-
-
-
-# ---------------------------------------------------------
-# main parser
-# ---------------------------------------------------------
-
-def parse_model_detail(
+def extract_next_data(
     html: str
-) -> Dict[str, Any]:
-
-    result = {
-
-        "logical_name": "",
-
-        "model_id": "",
-
-        "base_url": "",
-
-        "api_format": "",
-
-        "context_window": None,
-
-        "max_output_tokens": None,
-
-        "capabilities": [],
-
-        "tags": [],
-
-    }
-
-
-    if not html:
-
-        return result
+):
 
 
     try:
+
 
         soup = BeautifulSoup(
             html,
@@ -349,7 +183,375 @@ def parse_model_detail(
         )
 
 
-        # complete page text
+        node = soup.find(
+            "script",
+            {
+                "id":
+                    "__NEXT_DATA__"
+            }
+        )
+
+
+        if not node:
+
+            return {}
+
+
+
+        if not node.string:
+
+            return {}
+
+
+
+        return json.loads(
+            node.string
+        )
+
+
+    except Exception:
+
+
+        return {}
+
+
+
+
+
+# =====================================================
+# json search
+# =====================================================
+
+
+def find_json_value(
+    data,
+    keys
+):
+
+
+    if isinstance(
+        data,
+        dict
+    ):
+
+
+        for key,value in data.items():
+
+
+            if key.lower() in [
+                x.lower()
+                for x in keys
+            ]:
+
+                return value
+
+
+
+            result = find_json_value(
+                value,
+                keys
+            )
+
+
+            if result is not None:
+
+                return result
+
+
+
+    elif isinstance(
+        data,
+        list
+    ):
+
+
+        for item in data:
+
+
+            result = find_json_value(
+                item,
+                keys
+            )
+
+
+            if result is not None:
+
+                return result
+
+
+
+    return None
+
+
+
+
+
+# =====================================================
+# capability
+# =====================================================
+
+
+def parse_capabilities(
+    text: str
+) -> List[str]:
+
+
+    if not text:
+
+        return []
+
+
+
+    text = text.lower()
+
+
+    result = set()
+
+
+
+    mapping = {
+
+
+        "chat":[
+
+            "chat",
+            "instruction",
+            "conversation",
+
+        ],
+
+
+        "vision":[
+
+            "vision",
+            "multimodal",
+            "image input",
+
+        ],
+
+
+        "reasoning":[
+
+            "reasoning",
+            "think",
+            "cot",
+
+        ],
+
+
+        "coding":[
+
+            "coding",
+            "coder",
+            "code",
+
+        ],
+
+
+        "embedding":[
+
+            "embedding",
+
+        ],
+
+
+        "rerank":[
+
+            "rerank",
+
+        ],
+
+
+        "image":[
+
+            "image generation",
+            "diffusion",
+
+        ],
+
+
+        "audio":[
+
+            "audio",
+            "speech",
+
+        ],
+
+
+        "tools":[
+
+            "tools",
+            "function calling",
+
+        ],
+
+
+        "json_mode":[
+
+            "json mode",
+            "structured output",
+
+        ],
+
+
+    }
+
+
+
+    for name,words in mapping.items():
+
+
+        for word in words:
+
+
+            if word in text:
+
+                result.add(
+                    name
+                )
+
+                break
+
+
+
+    return sorted(
+        result
+    )
+
+
+
+
+
+# =====================================================
+# html fallback
+# =====================================================
+
+
+def find_field_value(
+    soup,
+    labels
+):
+
+
+    for label in labels:
+
+
+        node = soup.find(
+            string=lambda x:
+                x
+                and clean_text(x).lower()
+                ==
+                label.lower()
+        )
+
+
+        if not node:
+
+            continue
+
+
+
+        parent=node.parent
+
+
+        if not parent:
+
+            continue
+
+
+
+        sibling = (
+            parent.find_next_sibling()
+        )
+
+
+        if sibling:
+
+
+            value = clean_text(
+                sibling.get_text(
+                    " ",
+                    strip=True
+                )
+            )
+
+
+            if value:
+
+                return value
+
+
+
+    return ""
+
+
+
+
+
+# =====================================================
+# main
+# =====================================================
+
+
+def parse_model_detail(
+    html: str
+) -> Dict[str,Any]:
+
+
+    result = {
+
+
+        "logical_name":
+            "",
+
+
+        "model_id":
+            "",
+
+
+        "base_url":
+            "",
+
+
+        "api_format":
+            "",
+
+
+        "context_window":
+            None,
+
+
+        "max_output_tokens":
+            None,
+
+
+        "capabilities":
+            [],
+
+
+        "tags":
+            [],
+
+
+    }
+
+
+
+    if not html:
+
+        return result
+
+
+
+    try:
+
+
+        soup = BeautifulSoup(
+            html,
+            "html.parser"
+        )
+
+
 
         page_text = clean_text(
             soup.get_text(
@@ -359,157 +561,326 @@ def parse_model_detail(
         )
 
 
-        # -----------------------------
-        # model id
-        # -----------------------------
 
-        model_id = find_field_value(
-            soup,
-            [
-                "Model ID",
-                "Model Name",
-                "Model",
-            ],
+        meta_text=""
+
+
+        meta=soup.find(
+            "meta",
+            {
+                "name":
+                    "description"
+            }
         )
 
 
-        model_id = normalize_model_name(
-            model_id
-        )
+        if meta:
 
-
-        if model_id:
-
-            result["model_id"] = model_id
-
-
-            result["logical_name"] = (
-                model_id.split("/")[-1]
+            meta_text=meta.get(
+                "content",
+                ""
             )
 
 
 
-        # -----------------------------
-        # api base
-        # -----------------------------
+        combined_text = (
 
-        base_url = find_field_value(
-            soup,
-            [
-                "Base URL",
-                "API Base",
-                "Endpoint",
-            ],
+            page_text
+            +
+            " "
+            +
+            meta_text
+
         )
+
+
+
+        #
+        # next data
+        #
+
+        data = extract_next_data(
+            html
+        )
+
+
+
+        if data:
+
+
+            model_id=find_json_value(
+                data,
+                [
+                    "model",
+                    "modelId",
+                    "model_id",
+                ]
+            )
+
+
+            if model_id:
+
+
+                model_id = remove_copy_suffix(
+                    clean_text(model_id)
+                )
+
+
+                result["model_id"]=model_id
+
+
+                result["logical_name"]=(
+                    model_id.split("/")[-1]
+                )
+
+
+
+
+            base_url=find_json_value(
+                data,
+                [
+                    "baseUrl",
+                    "base_url",
+                    "endpoint",
+                ]
+            )
+
+
+            if base_url:
+
+
+                result["base_url"]=(
+                    remove_copy_suffix(
+                        clean_text(base_url)
+                    )
+                )
+
+
+
+            api_format=find_json_value(
+                data,
+                [
+                    "apiFormat",
+                    "api_format",
+                    "protocol",
+                ]
+            )
+
+
+            if api_format:
+
+
+                result["api_format"]=(
+                    remove_copy_suffix(
+                        clean_text(api_format)
+                    )
+                )
+
+
+
+            context=find_json_value(
+                data,
+                [
+                    "contextWindow",
+                    "context_window",
+                    "contextLength",
+                ]
+            )
+
+
+            if context:
+
+
+                result["context_window"]=(
+                    normalize_number(
+                        context
+                    )
+                )
+
+
+
+            output=find_json_value(
+                data,
+                [
+                    "maxOutputTokens",
+                    "max_output_tokens",
+                    "maxTokens",
+                ]
+            )
+
+
+            if output:
+
+
+                result["max_output_tokens"]=(
+                    normalize_number(
+                        output
+                    )
+                )
+
+
+
+
+
+        #
+        # regex fallback
+        #
+
+        if not result["context_window"]:
+
+
+            match=re.search(
+                r"([\d,.]+[KM]?)\s*context",
+                combined_text,
+                re.I
+            )
+
+
+            if match:
+
+
+                result["context_window"]=(
+                    normalize_number(
+                        match.group(1)
+                    )
+                )
+
+
+
+
+
+        #
+        # html fallback
+        #
+
+        if not result["model_id"]:
+
+
+            value=find_field_value(
+                soup,
+                [
+                    "Model ID",
+                    "Model",
+                    "Model Name",
+                ]
+            )
+
+
+            value=remove_copy_suffix(
+                value
+            )
+
+
+            if value:
+
+
+                result["model_id"]=value
+
+
+                result["logical_name"]=(
+                    value.split("/")[-1]
+                )
+
+
+
+        if not result["base_url"]:
+
+
+            value=find_field_value(
+                soup,
+                [
+                    "Base URL",
+                    "API Base",
+                    "Endpoint",
+                ]
+            )
+
+
+            result["base_url"]=(
+                remove_copy_suffix(
+                    value
+                )
+            )
+
+
+
+        if not result["api_format"]:
+
+
+            result["api_format"]=(
+                remove_copy_suffix(
+                    find_field_value(
+                        soup,
+                        [
+                            "API Format",
+                            "Protocol",
+                        ]
+                    )
+                )
+            )
+
+
+
+
+
+        #
+        # max output fallback
+        #
+
+        if not result["max_output_tokens"]:
+
+
+            value=find_field_value(
+                soup,
+                [
+                    "Max Output Tokens",
+                    "Max Tokens",
+                ]
+            )
+
+
+            result["max_output_tokens"]=(
+                normalize_number(
+                    value
+                )
+            )
+
 
 
         if (
-            base_url.startswith(
-                "http"
-            )
+            not result["max_output_tokens"]
+            and
+            result["context_window"]
         ):
 
-            result["base_url"] = base_url
 
-
-
-        # -----------------------------
-        # api format
-        # -----------------------------
-
-        result["api_format"] = (
-            find_field_value(
-                soup,
-                [
-                    "API Format",
-                    "Protocol",
-                ],
+            result["max_output_tokens"]=int(
+                result["context_window"]
+                /
+                4
             )
-        )
-
-
-        # -----------------------------
-        # context window
-        # -----------------------------
-
-        context = find_field_value(
-            soup,
-            [
-                "Context Window",
-                "Context Length",
-                "Context Size",
-            ],
-        )
-
-
-        result["context_window"] = (
-            normalize_number(context)
-        )
 
 
 
-        # -----------------------------
-        # max output
-        # -----------------------------
+        #
+        # capability
+        #
 
-        output = find_field_value(
-            soup,
-            [
-                "Max Output Tokens",
-                "Max Tokens",
-                "Output Tokens",
-            ],
-        )
-
-
-        result["max_output_tokens"] = (
-            normalize_number(output)
-        )
-
-
-
-        # -----------------------------
-        # capabilities
-        # -----------------------------
-
-        result["capabilities"] = (
+        result["capabilities"]=(
             parse_capabilities(
-                page_text
+                combined_text
             )
         )
-
-
-        # -----------------------------
-        # tags
-        # -----------------------------
-
-        tags = find_field_value(
-            soup,
-            [
-                "Tags",
-                "Capabilities",
-            ],
-        )
-
-
-        if tags:
-
-            result["tags"] = [
-                clean_text(x)
-                for x in re.split(
-                    r"[,|/]",
-                    tags
-                )
-                if clean_text(x)
-            ]
 
 
 
     except Exception:
 
+
         logger.exception(
-            "parse model detail failed"
+            "parse detail failed"
         )
+
 
 
     return result

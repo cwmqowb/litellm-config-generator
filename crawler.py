@@ -1,68 +1,128 @@
 """
 freellm crawler
 
-Fetch model list and model detail pages.
-
 Flow:
 
-models/?free=1
+freellm models page
 
-    ↓
+        |
+        v
 
-model detail urls
+FreeLLMModel
 
-    ↓
+        |
+        v
 
-parse_model_detail()
+detail page
 
-    ↓
+        |
+        v
 
-ModelDetail
+parser.py
 
+        |
+        v
+
+ProviderModel
 """
 
+
+from __future__ import annotations
+
+
+import json
 import logging
 import re
 import time
-from typing import List
+
+from typing import List, Optional
+
 
 import requests
+from bs4 import BeautifulSoup
 
-from parser import parse_model_detail
-from models import ModelDetail
+
+from models import (
+    FreeLLMModel,
+    ProviderModel,
+    ModelCapability,
+)
+
+
+from parser import (
+    parse_model_detail,
+)
+
 
 
 logger = logging.getLogger(__name__)
 
 
-BASE_URL = "https://freellm.net"
+
+BASE_URL = (
+    "https://freellm.net"
+)
+
 
 
 SUPPORTED_PROVIDERS = {
+
+
     "NVIDIA NIM",
+
     "OpenRouter",
+
     "GitHub Models",
+
     "ModelScope",
+
     "SambaNova",
+
     "Agnes AI",
+
     "Kilo Code",
+
 }
 
 
-BAD_NAME_KEYWORDS = [
-    "free",
-    "api key",
-    "rate limits",
-    "models",
-    "model count",
-]
+
+PROVIDER_MAPPING = {
+
+
+    "nvidia-nim":
+        "NVIDIA NIM",
+
+
+    "openrouter":
+        "OpenRouter",
+
+
+    "github-models":
+        "GitHub Models",
+
+
+    "modelscope":
+        "ModelScope",
+
+
+    "sambanova":
+        "SambaNova",
+
+
+    "agnes-ai":
+        "Agnes AI",
+
+
+    "kilo-code":
+        "Kilo Code",
+
+}
+
+
 
 
 
 class FreeLLMCrawler:
-    """
-    freellm crawler
-    """
 
 
     def __init__(
@@ -70,70 +130,98 @@ class FreeLLMCrawler:
         timeout: int = 20,
     ):
 
+
         self.timeout = timeout
+
 
         self.session = requests.Session()
 
+
         self.session.headers.update(
+
             {
+
                 "User-Agent":
+
                 (
                     "Mozilla/5.0 "
                     "Chrome/120 Safari/537"
                 )
+
             }
+
         )
 
 
 
-    # -------------------------------------------------
-    # http
-    # -------------------------------------------------
+
+
+    # =====================================================
+    # HTTP
+    # =====================================================
+
 
     def fetch(
         self,
-        url: str
+        url: str,
     ) -> str:
+
 
         try:
 
-            response = self.session.get(
-                url,
-                timeout=self.timeout,
+
+            response = (
+                self.session.get(
+                    url,
+                    timeout=self.timeout,
+                )
             )
 
+
             response.raise_for_status()
+
 
             return response.text
 
 
-        except Exception:
 
-            logger.exception(
-                "fetch failed %s",
-                url
+        except Exception as e:
+
+
+            logger.warning(
+                "fetch failed %s %s",
+                url,
+                e,
             )
+
 
             return ""
 
 
 
-    # -------------------------------------------------
-    # list page
-    # -------------------------------------------------
 
-    def fetch_model_list(
+
+    # =====================================================
+    # models.html
+    # =====================================================
+
+
+    def fetch_models(
         self,
         top: int = 200,
-    ) -> List[ModelDetail]:
+    ) -> List[FreeLLMModel]:
 
 
         url = (
+
             f"{BASE_URL}/models/?free=1"
+
         )
 
 
-        html = self.fetch(url)
+        html = self.fetch(
+            url
+        )
 
 
         if not html:
@@ -141,88 +229,247 @@ class FreeLLMCrawler:
             return []
 
 
-        models = []
 
+        models = (
 
-        candidates = (
-            self._parse_links(html)
+            self.parse_model_list(
+                html
+            )
+
         )
 
 
-        logger.info(
-            "Found %s model links",
-            len(candidates)
+        return models[:top]
+
+
+
+
+
+    def parse_model_list(
+        self,
+        html: str,
+    ) -> List[FreeLLMModel]:
+
+
+        result = []
+
+        seen = set()
+
+
+
+        #
+        # 1. Next.js data
+        #
+
+        next_data = (
+
+            self.extract_next_data(
+                html
+            )
+
         )
 
 
-        for index, item in enumerate(
-            candidates[:top],
-            start=1,
-        ):
+        items = (
 
-            try:
+            self.find_model_items(
+                next_data
+            )
 
-                logger.info(
-                    "[%s/%s] %s %s",
-                    index,
-                    top,
-                    item.get("provider"),
-                    item.get("name"),
-                )
+        )
 
 
-                detail = (
-                    self.fetch_detail(
-                        item
-                    )
-                )
+
+        for item in items:
 
 
-                if detail:
-
-                    models.append(
-                        detail
-                    )
-
-
-                # avoid aggressive crawling
-
-                time.sleep(
-                    0.3
-                )
-
-
-            except Exception:
-
-                logger.exception(
-                    "parse model failed"
-                )
+            if not isinstance(
+                item,
+                dict
+            ):
 
                 continue
 
 
 
-        return models
+            url = (
+
+                item.get("url")
+
+                or item.get("href")
+
+                or item.get("detail_url")
+
+                or item.get("link")
+
+            )
+
+
+            if not url:
+
+                continue
 
 
 
-    # -------------------------------------------------
-    # detail
-    # -------------------------------------------------
+            if "/models/" not in url:
 
-    def fetch_detail(
-        self,
-        item: dict,
-    ):
+                continue
 
-        url = item.get(
-            "url"
+
+
+            model = (
+
+                self.build_free_model(
+                    item.get(
+                        "provider",
+                        ""
+                    ),
+                    item.get(
+                        "name",
+                        ""
+                    ),
+                    url,
+                )
+
+            )
+
+
+            if model and model.detail_url not in seen:
+
+
+                seen.add(
+                    model.detail_url
+                )
+
+                result.append(
+                    model
+                )
+
+
+
+
+
+        #
+        # 2. href fallback
+        #
+
+        if not result:
+
+
+            soup = BeautifulSoup(
+                html,
+                "html.parser"
+            )
+
+
+            for a in soup.find_all(
+                "a",
+                href=True,
+            ):
+
+
+                href = a["href"]
+
+
+                if (
+                    "/models/"
+                    not in href
+                ):
+
+                    continue
+
+
+
+                if href in seen:
+
+                    continue
+
+
+
+                parts = (
+
+                    href.strip("/")
+                    .split("/")
+                )
+
+
+                if len(parts) < 3:
+
+                    continue
+
+
+
+                provider = (
+
+                    self.normalize_provider(
+                        parts[1]
+                    )
+
+                )
+
+
+                name = (
+
+                    a.get_text(
+                        " ",
+                        strip=True
+                    )
+
+                    or parts[2]
+
+                )
+
+
+
+                model = (
+
+                    self.build_free_model(
+                        provider,
+                        name,
+                        href,
+                    )
+
+                )
+
+
+                if model:
+
+
+                    seen.add(
+                        href
+                    )
+
+
+                    result.append(
+                        model
+                    )
+
+
+
+        logger.info(
+            "parsed %s models",
+            len(result),
         )
 
 
-        if not url:
+        return result
 
-            return None
+
+
+
+
+    # =====================================================
+    # detail page
+    # =====================================================
+
+
+    def fetch_provider_model(
+        self,
+        model: FreeLLMModel,
+    ) -> Optional[ProviderModel]:
+
+
+        url = model.detail_url
 
 
         if not url.startswith(
@@ -236,7 +483,10 @@ class FreeLLMCrawler:
             )
 
 
-        html = self.fetch(url)
+
+        html = self.fetch(
+            url
+        )
 
 
         if not html:
@@ -245,286 +495,359 @@ class FreeLLMCrawler:
 
 
 
-        parsed = (
+        detail = (
+
             parse_model_detail(
                 html
             )
+
         )
 
 
-        provider = (
-            item.get(
-                "provider",
-                ""
-            )
-        )
 
+        capability = (
 
-        result = ModelDetail(
-
-            provider=provider,
-
-            logical_name=
-                parsed.get(
-                    "logical_name",
-                    "",
-                ),
-
-            model_id=
-                parsed.get(
-                    "model_id",
-                    "",
-                ),
-
-            base_url=
-                parsed.get(
-                    "base_url",
-                    "",
-                ),
-
-            api_format=
-                parsed.get(
-                    "api_format",
-                    "",
-                ),
-
-            context_window=
-                parsed.get(
-                    "context_window"
-                ),
-
-            max_output_tokens=
-                parsed.get(
-                    "max_output_tokens"
-                ),
-
-            capabilities=
-                parsed.get(
+            self.build_capability(
+                detail.get(
                     "capabilities",
-                    [],
-                ),
-
-            tags=
-                parsed.get(
-                    "tags",
-                    [],
-                ),
-
-        )
-
-
-        # -----------------------------
-        # validate
-        # -----------------------------
-
-        if not self.validate_model(
-            result
-        ):
-
-            logger.warning(
-                "drop invalid model %s",
-                url
-            )
-
-            return None
-
-
-
-        # fallback logical name
-
-        if not result.logical_name:
-
-            result.logical_name = (
-                self.slug_to_name(
-                    url
+                    []
                 )
             )
 
-
-        return result
-
+        )
 
 
-    # -------------------------------------------------
-    # validate
-    # -------------------------------------------------
 
-    def validate_model(
+        provider_model = ProviderModel(
+
+
+            provider=model.provider,
+
+
+            logical_name=(
+
+                detail.get(
+                    "logical_name"
+                )
+
+                or
+
+                model.name
+
+            ),
+
+
+            model_id=(
+
+                detail.get(
+                    "model_id"
+                )
+
+                or
+
+                model.name
+
+            ),
+
+
+            api_base=(
+
+                detail.get(
+                    "base_url",
+                    ""
+                )
+
+            ),
+
+
+            api_format=(
+
+                detail.get(
+                    "api_format",
+                    ""
+                )
+
+            ),
+
+
+            context_window=(
+
+                detail.get(
+                    "context_window"
+                )
+
+            ),
+
+
+            max_output_tokens=(
+
+                detail.get(
+                    "max_output_tokens"
+                )
+
+            ),
+
+
+            capability=capability,
+
+
+            raw_tags=(
+
+                detail.get(
+                    "tags",
+                    []
+                )
+
+            ),
+
+
+        )
+
+
+
+        return provider_model
+
+
+
+
+
+    # =====================================================
+    # NEXT DATA
+    # =====================================================
+
+
+    def extract_next_data(
         self,
-        model: ModelDetail,
-    ) -> bool:
-
-
-        if not model.provider:
-
-            return False
-
-
-        if (
-            model.provider
-            not in SUPPORTED_PROVIDERS
-        ):
-
-            return False
-
-
-
-        name = (
-            model.logical_name
-            or ""
-        ).lower()
-
-
-        for keyword in BAD_NAME_KEYWORDS:
-
-            if keyword in name:
-
-                return False
-
-
-
-        return True
-
-
-
-    # -------------------------------------------------
-    # slug fallback
-    # -------------------------------------------------
-
-    def slug_to_name(
-        self,
-        url: str
-    ) -> str:
-
-        """
-        /models/nvidia-nim/z-ai-glm-5-2
-
-        ↓
-
-        glm-5.2
-
-        """
+        html: str,
+    ):
 
 
         try:
 
-            slug = (
-                url.rstrip("/")
-                .split("/")
-                [-1]
+
+            soup = BeautifulSoup(
+                html,
+                "html.parser"
             )
 
 
-            name = slug.replace(
-                "-",
-                ".",
+            node = soup.find(
+                "script",
+                id="__NEXT_DATA__",
             )
 
 
-            # remove provider prefix
+            if not node:
 
-            parts = name.split(".")
-
-
-            if len(parts) > 3:
-
-                name = ".".join(
-                    parts[-3:]
-                )
+                return {}
 
 
-            return name
+
+            return json.loads(
+                node.string
+            )
 
 
         except Exception:
 
-            return ""
+
+            return {}
 
 
 
-    # -------------------------------------------------
-    # extract links
-    # -------------------------------------------------
 
-    def _parse_links(
+
+    def find_model_items(
         self,
-        html: str
-    ) -> List[dict]:
+        data,
+    ):
 
 
         result = []
 
 
-        # current implementation keeps
-        # compatibility with old crawler
-
-        pattern = (
-            r'href="'
-            r'(/models/[^"]+)"'
-        )
+        if isinstance(
+            data,
+            dict
+        ):
 
 
-        links = re.findall(
-            pattern,
-            html
-        )
+            for key, value in data.items():
 
 
-        seen = set()
+                if key.lower() in (
+
+                    "models",
+                    "items",
+                    "results",
+
+                ):
 
 
-        for link in links:
+                    if isinstance(
+                        value,
+                        list,
+                    ):
+
+                        result.extend(
+                            value
+                        )
 
 
-            if link in seen:
+                result.extend(
 
-                continue
+                    self.find_model_items(
+                        value
+                    )
 
-
-            seen.add(link)
-
-
-
-            parts = (
-                link.strip("/")
-                .split("/")
-            )
-
-
-            if len(parts) < 3:
-
-                continue
-
-
-
-            provider_slug = parts[1]
-
-            model_slug = parts[2]
-
-
-
-            provider = (
-                provider_slug
-                .replace(
-                    "-",
-                    " "
                 )
-                .title()
-            )
 
 
-            result.append(
-                {
-                    "url": link,
 
-                    "provider":
-                        provider,
+        elif isinstance(
+            data,
+            list,
+        ):
 
-                    "name":
-                        model_slug,
-                }
-            )
 
+            for item in data:
+
+
+                result.extend(
+
+                    self.find_model_items(
+                        item
+                    )
+
+                )
 
 
         return result
+
+
+
+
+
+    # =====================================================
+    # helpers
+    # =====================================================
+
+
+    def build_free_model(
+        self,
+        provider,
+        name,
+        url,
+    ):
+
+
+        provider = (
+
+            self.normalize_provider(
+                provider
+            )
+
+        )
+
+
+        if not provider:
+
+            return None
+
+
+
+        if provider not in SUPPORTED_PROVIDERS:
+
+            return None
+
+
+
+        return FreeLLMModel(
+
+            provider=provider,
+
+            name=name.strip(),
+
+            detail_url=url,
+
+        )
+
+
+
+
+
+    def normalize_provider(
+        self,
+        value: str,
+    ):
+
+
+        if not value:
+
+            return ""
+
+
+
+        value = (
+
+            value.lower()
+            .strip()
+        )
+
+
+
+        if value in PROVIDER_MAPPING:
+
+            return PROVIDER_MAPPING[value]
+
+
+
+        return (
+
+            value
+            .replace(
+                "-",
+                " ",
+            )
+            .title()
+
+        )
+
+
+
+
+
+    def build_capability(
+        self,
+        values,
+    ):
+
+
+        cap = ModelCapability()
+
+
+
+        for item in values:
+
+
+            name = str(
+                item
+            ).lower()
+
+
+
+            if hasattr(
+                cap,
+                name,
+            ):
+
+
+                setattr(
+                    cap,
+                    name,
+                    True,
+                )
+
+
+
+        return cap

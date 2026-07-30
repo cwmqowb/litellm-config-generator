@@ -1,310 +1,326 @@
-from __future__ import annotations
+"""
+Model data structures.
 
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+This module defines unified model information objects used by:
+- crawler.py
+- parser.py
+- detail_parser.py
+- normalizer.py
+- config_builder.py
 
+The goal is to normalize different free LLM providers
+into a LiteLLM-compatible model representation.
+"""
 
-@dataclass
-class FreeLLMModel:
-    """
-    freellm 首页模型记录
-    """
-
-    provider: str
-
-    name: str
-
-    detail_url: str
-
+from dataclasses import dataclass, field, asdict
+from typing import List, Dict, Optional
 
 
 @dataclass
 class ModelCapability:
     """
-    模型能力描述
+    Model capability information.
+
+    Example:
+    - reasoning
+    - vision
+    - tool_calling
+    - json_mode
     """
 
-    chat: bool = False
-
-    vision: bool = False
-
     reasoning: bool = False
-
-    coding: bool = False
-
-    embedding: bool = False
-
-    rerank: bool = False
-
-    image: bool = False
-
-    audio: bool = False
-
-    tools: bool = False
-
+    vision: bool = False
+    tool_calling: bool = False
     json_mode: bool = False
 
-
-
-    def enabled(self) -> List[str]:
-
-        result = []
-
-
-        for name in (
-            "chat",
-            "reasoning",
-            "coding",
-            "vision",
-            "embedding",
-            "rerank",
-            "image",
-            "audio",
-            "tools",
-            "json_mode",
-        ):
-
-            if getattr(
-                self,
-                name,
-                False,
-            ):
-
-                result.append(
-                    name
-                )
-
-
-        return result
-
-
-
-    def merge(
-        self,
-        other: "ModelCapability",
-    ):
-
-        """
-        合并多个 provider capability
-        """
-
-        for field_name in vars(self):
-
-            if getattr(
-                other,
-                field_name,
-                False,
-            ):
-
-                setattr(
-                    self,
-                    field_name,
-                    True,
-                )
-
+    # Original capability text from provider page
+    raw: List[str] = field(default_factory=list)
 
 
 @dataclass
-class ProviderModel:
+class ModelPricing:
     """
-    一个 Provider 的一个 deployment
+    Pricing information.
+
+    FreeLLM may provide:
+    - free tier information
+    - paid pricing information
+
+    Keep optional because many providers do not expose pricing.
     """
+
+    input_price: Optional[float] = None
+    output_price: Optional[float] = None
+
+    currency: str = "USD"
+
+    free: bool = False
+
+    free_note: Optional[str] = None
+
+
+@dataclass
+class ModelInfo:
+    """
+    Unified LLM model information.
+
+    This object is the core data model of the project.
+
+    Data source:
+        FreeLLM models.html
+        FreeLLM model detail page
+
+    Output target:
+        LiteLLM config.yaml
+    """
+
+    # ==========================
+    # Basic information
+    # ==========================
+
+    name: str
 
     provider: str
 
-    logical_name: str
-
-    model_id: str
-
-    api_base: str = ""
-
-    api_format: str = ""
+    # Provider original model ID
+    # Example:
+    # z-ai/glm-5.2
+    model_id: Optional[str] = None
 
 
-    #
-    # 单 key 兼容
-    #
-    api_key_env: str = ""
+    # Detail page URL
+    detail_url: Optional[str] = None
 
 
-    #
-    # 多 key 支持
-    #
-    api_key_envs: List[str] = field(
-        default_factory=list
-    )
+    # ==========================
+    # API information
+    # ==========================
+
+    api_base: Optional[str] = None
+
+    api_format: Optional[str] = None
+
+    # Environment variable name
+    # Example:
+    # NVIDIA_API_KEY
+    api_key_env: Optional[str] = None
 
 
-    deployment_name: str = ""
+    # ==========================
+    # Model capability
+    # ==========================
 
-
-    context_window: Optional[int] = None
-
-
-    max_output_tokens: Optional[int] = None
-
-
-
-    capability: ModelCapability = field(
+    capabilities: ModelCapability = field(
         default_factory=ModelCapability
     )
 
 
-    raw_tags: List[str] = field(
+    input_types: List[str] = field(
         default_factory=list
     )
 
+    output_types: List[str] = field(
+        default_factory=list
+    )
+
+
+    # ==========================
+    # Context information
+    # ==========================
+
+    context_window: Optional[int] = None
+
+    max_output_tokens: Optional[int] = None
+
+
+    # ==========================
+    # Availability
+    # ==========================
+
+    free: bool = False
+
+    verified: bool = False
+
+    online: bool = False
+
+
+    # ==========================
+    # Pricing
+    # ==========================
+
+    pricing: ModelPricing = field(
+        default_factory=ModelPricing
+    )
+
+
+    # ==========================
+    # Ranking / selection
+    # ==========================
+
+    score: float = 0
+
+    priority: int = 0
+
+
+    # ==========================
+    # Extra metadata
+    # ==========================
+
+    tags: List[str] = field(
+        default_factory=list
+    )
 
     metadata: Dict = field(
         default_factory=dict
     )
 
 
-
-    def get_api_keys(self):
-
+    def to_dict(self) -> Dict:
         """
-        获取所有 API Key 环境变量
+        Convert model object into dictionary.
+
+        Used by:
+        - json export
+        - debug output
+        - config builder
         """
 
-        if self.api_key_envs:
-
-            return self.api_key_envs
+        return asdict(self)
 
 
-        if self.api_key_env:
+    def add_tag(self, tag: str):
+        """
+        Add model tag safely.
+        """
 
-            return [
-                self.api_key_env
-            ]
+        if tag not in self.tags:
+            self.tags.append(tag)
 
 
-        return []
+    def add_capability(self, capability: str):
+        """
+        Normalize capability string.
+        """
+
+        capability = capability.lower().strip()
+
+        if capability not in self.capabilities.raw:
+            self.capabilities.raw.append(capability)
+
+        if capability in (
+            "reasoning",
+            "thinking",
+        ):
+            self.capabilities.reasoning = True
+
+
+        elif capability in (
+            "vision",
+            "image",
+            "multimodal",
+        ):
+            self.capabilities.vision = True
+
+
+        elif capability in (
+            "tool calling",
+            "tool_calling",
+            "function calling",
+        ):
+            self.capabilities.tool_calling = True
+
+
+        elif capability in (
+            "json",
+            "json mode",
+            "structured output",
+        ):
+            self.capabilities.json_mode = True
+
+
+
+    def is_chat_model(self) -> bool:
+        """
+        Determine whether model can be used as chat model.
+        """
+
+        if not self.input_types:
+            return True
+
+        return (
+            "text" in self.input_types
+            or "chat" in self.input_types
+        )
+
+
+    def is_vision_model(self) -> bool:
+        """
+        Determine whether model supports vision.
+        """
+
+        return self.capabilities.vision
 
 
 
 @dataclass
 class LogicalModel:
     """
-    品牌模型
+    Logical model abstraction.
 
-    例如：
+    Example:
 
-    glm-5.2
+    smart-chat
+        |
+        +-- glm-5.2 NVIDIA
+        +-- deepseek-v3 ModelScope
+        +-- gpt-4o GitHub Models
 
-        NVIDIA
-        OpenRouter
-        ModelScope
 
+    Used for LiteLLM router configuration.
     """
 
     name: str
 
+    description: Optional[str] = None
 
-    providers: List[ProviderModel] = field(
+
+    models: List[ModelInfo] = field(
         default_factory=list
     )
 
 
-    context_window: Optional[int] = None
+    strategy: str = "fallback"
 
 
-    max_output_tokens: Optional[int] = None
-
-
-
-    capability: ModelCapability = field(
-        default_factory=ModelCapability
-    )
-
-
-
-    def add_provider(
+    def add_model(
         self,
-        provider: ProviderModel,
+        model: ModelInfo
     ):
+        """
+        Add physical model.
+        """
 
-        self.providers.append(
-            provider
+        self.models.append(model)
+
+
+    def sort_models(self):
+        """
+        Sort by score descending.
+        """
+
+        self.models.sort(
+            key=lambda x: x.score,
+            reverse=True
         )
 
 
-        #
-        # Context Window
-        #
-        if provider.context_window:
+    def get_model_ids(self) -> List[str]:
+        """
+        Return provider model IDs.
+        """
 
-            if (
-                self.context_window is None
-                or
-                provider.context_window
-                >
-                self.context_window
-            ):
-
-                self.context_window = (
-                    provider.context_window
-                )
-
-
-        #
-        # Max Output Tokens
-        #
-        if provider.max_output_tokens:
-
-            if (
-                self.max_output_tokens is None
-                or
-                provider.max_output_tokens
-                >
-                self.max_output_tokens
-            ):
-
-                self.max_output_tokens = (
-                    provider.max_output_tokens
-                )
-
-
-        #
-        # Capability merge
-        #
-        self.capability.merge(
-            provider.capability
-        )
-
-
-
-@dataclass
-class CapabilityGroup:
-    """
-    capability:
-
-    chat
-    reasoning
-    coding
-    vision
-    """
-
-    name: str
-
-
-    models: List[str] = field(
-        default_factory=list
-    )
-
-
-
-@dataclass
-class BuildResult:
-    """
-    Builder 输出结果
-    """
-
-    logical_models: Dict[str, LogicalModel] = field(
-        default_factory=dict
-    )
-
-
-    capability_groups: Dict[str, CapabilityGroup] = field(
-        default_factory=dict
-    )
+        return [
+            m.model_id
+            for m in self.models
+            if m.model_id
+        ]
