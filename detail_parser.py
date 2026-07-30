@@ -1,299 +1,424 @@
 """
 detail_parser.py
 
-FreeLLM模型详情解析器
+Parse FreeLLM model detail page.
 
-
-职责:
-
-补充模型详情信息:
-
-- provider
-- api_base
-- api_key_env
-- capability
-- score
-- metadata
-
-
-输入:
-
-crawler/parser产生的模型dict
-
-
-输出:
-
-List[dict]
-
-
-后续:
-
-normalizer.py
-
-List[ModelInfo]
-
-
-禁止:
-
-ProviderModel
-LogicalModel
+Extract real API information.
 """
 
-from __future__ import annotations
-
-
-import html
-
-import json
-
-import logging
 
 import re
+import logging
+from typing import Dict, Optional, List
 
-
-from typing import Any, Dict, List
-
-
+import requests
 
 
 logger = logging.getLogger(__name__)
 
 
+HEADERS = {
+    "User-Agent":
+        (
+            "Mozilla/5.0 "
+            "(Windows NT 10.0; Win64; x64)"
+        )
+}
 
 
 
-# ============================================================
-# Capability Detect
-# ============================================================
+# ------------------------------------------------
+# HTTP
+# ------------------------------------------------
 
+def fetch_html(url: str) -> str:
 
-def detect_capability(
-    model_id: str,
-    name: str = ""
-) -> List[str]:
-    """
-    根据模型名称判断能力
-
-
-    """
-
-
-
-    text = (
-
-        f"{model_id} {name}"
-
-        .lower()
-
+    logger.info(
+        "fetch detail page: %s",
+        url
     )
 
 
+    response = requests.get(
+        url,
+        headers=HEADERS,
+        timeout=30
+    )
 
-    result = []
-
-
-
-    if any(
-        x in text
-        for x in [
-
-            "embed",
-
-            "embedding",
-
-        ]
-    ):
+    response.raise_for_status()
 
 
-        result.append(
-            "embedding"
-        )
+    return response.text
 
 
 
-    if any(
-        x in text
-        for x in [
-
-            "vision",
-
-            "-vl",
-
-            "vl-",
-
-            "multimodal",
-
-            "image",
-
-        ]
-    ):
+# ------------------------------------------------
+# helpers
+# ------------------------------------------------
 
 
-        result.append(
-            "vision"
-        )
-
-
-
-    if any(
-        x in text
-        for x in [
-
-            "rerank",
-
-        ]
-    ):
-
-
-        result.append(
-            "rerank"
-        )
-
-
-
-    if any(
-        x in text
-        for x in [
-
-            "coder",
-
-            "code",
-
-            "coding",
-
-        ]
-    ):
-
-
-        result.append(
-            "coding"
-        )
-
-
-
-    if any(
-        x in text
-        for x in [
-
-            "reasoning",
-
-            "think",
-
-            "r1",
-
-        ]
-    ):
-
-
-        result.append(
-            "reasoning"
-        )
-
-
-
-    if not result:
-
-
-        result.append(
-            "chat"
-        )
-
-
-
-    return result
-
-
-
-
-
-# ============================================================
-# JSON extraction
-# ============================================================
-
-
-def decode_html(
-    content: str
+def clean_text(
+    text: Optional[str]
 ) -> str:
 
+    if not text:
+        return ""
 
-    return html.unescape(
-
-        content
-
+    return (
+        text
+        .replace(
+            "&amp;",
+            "&"
+        )
+        .replace(
+            "&#39;",
+            "'"
+        )
+        .replace(
+            "&quot;",
+            '"'
+        )
+        .strip()
     )
 
 
 
+def extract_between(
+    html: str,
+    label: str
+) -> Optional[str]:
 
-
-def extract_provider_info(
-    source: str
-) -> Dict[str, Any]:
     """
-    提取页面provider信息
+    Extract value after label.
 
+    Example:
 
-    freellm:
-
-    providers:
-
-        xxx:
-
-            baseUrl
-
-            verifiedProtocols
-
+    Model ID
+    <code>
+       z-ai/glm-5.2
+    </code>
     """
 
 
+    pattern = (
+        rf"{label}.*?"
+        r"<code[^>]*>"
+        r"(.*?)"
+        r"</code>"
+    )
 
-    result = {}
+
+    match = re.search(
+        pattern,
+        html,
+        re.S | re.I
+    )
 
 
+    if not match:
+        return None
 
-    source = decode_html(
 
-        source
-
+    return clean_text(
+        match.group(1)
     )
 
 
 
-    patterns = {
+def extract_code_values(
+    html: str
+) -> List[str]:
+
+    values = re.findall(
+        r"<code[^>]*>(.*?)</code>",
+        html,
+        re.S
+    )
+
+    return [
+        clean_text(x)
+        for x in values
+    ]
 
 
-        "api_base":
 
-            r'"baseUrl"\s*:\s*"([^"]+)"',
+def extract_section_value(
+    html: str,
+    title: str
+):
+
+    """
+    Extract technical cards.
+
+    Example:
+
+    Context window
+    <strong>
+      1.0M
+    </strong>
+    """
+
+
+    pattern = (
+        rf"{title}"
+        r".*?"
+        r"<strong[^>]*>"
+        r"(.*?)"
+        r"</strong>"
+    )
+
+
+    match = re.search(
+        pattern,
+        html,
+        re.S | re.I
+    )
+
+
+    if not match:
+        return None
+
+
+    return clean_text(
+        match.group(1)
+    )
 
 
 
-        "score":
+# ------------------------------------------------
+# capability
+# ------------------------------------------------
 
-            r'"score"\s*:\s*([0-9.]+)',
+
+def extract_capabilities(
+    html: str
+) -> List[str]:
+
+    match = re.search(
+        r"Capabilities</span>\s*"
+        r"<strong[^>]*>"
+        r"(.*?)"
+        r"</strong>",
+        html,
+        re.S | re.I
+    )
 
 
+    if not match:
+        return []
+
+
+    value = clean_text(
+        match.group(1)
+    )
+
+
+    return [
+        x.strip()
+        for x in value.split(",")
+    ]
+
+
+
+def extract_provider(
+    html: str
+):
+
+    match = re.search(
+        r"Provider\s*</span>\s*"
+        r"<strong[^>]*>"
+        r"(.*?)"
+        r"</strong>",
+        html,
+        re.S | re.I
+    )
+
+
+    if match:
+        return clean_text(
+            match.group(1)
+        )
+
+
+    return ""
+
+
+
+# ------------------------------------------------
+# main parser
+# ------------------------------------------------
+
+
+def parse_detail(
+    model: Dict
+) -> Dict:
+
+
+    """
+    Add detail information.
+
+    input:
+
+    {
+       name,
+       detail_url
     }
 
+    return:
+    enriched model
+    """
 
 
-    for key, pattern in patterns.items():
+    detail_url = (
+        model
+        .get("detail_url")
+    )
 
 
-        match = re.search(
+    if not detail_url:
 
-            pattern,
+        logger.warning(
+            "no detail url: %s",
+            model.get("name")
+        )
 
-            source
+        return model
 
+
+
+    try:
+
+        html = fetch_html(
+            detail_url
+        )
+
+
+    except Exception as e:
+
+        logger.error(
+            "detail fetch failed %s %s",
+            detail_url,
+            e
+        )
+
+        return model
+
+
+
+    result = dict(
+        model
+    )
+
+
+
+    # -----------------------------
+    # API Base
+    # -----------------------------
+
+
+    api_base = extract_between(
+        html,
+        "Base URL"
+    )
+
+
+    if api_base:
+
+        result["api_base"] = api_base
+
+
+
+    # -----------------------------
+    # Real Model ID
+    # -----------------------------
+
+
+    model_id = extract_between(
+        html,
+        "Model ID"
+    )
+
+
+    if model_id:
+
+        result["model_id"] = model_id
+
+
+    else:
+
+        result["model_id"] = (
+            model.get("name")
         )
 
 
 
-        if match:
+    # -----------------------------
+    # provider
+    # -----------------------------
 
 
-            result[key] = match.group(1)
+    provider = extract_provider(
+        html
+    )
+
+
+    if provider:
+
+        result["provider"] = provider
+
+
+
+    # -----------------------------
+    # technical
+    # -----------------------------
+
+
+    context = extract_section_value(
+        html,
+        "Context window"
+    )
+
+
+    if context:
+
+        result["context"] = context
+
+
+
+    max_output = extract_section_value(
+        html,
+        "Max output"
+    )
+
+
+    if max_output:
+
+        result["max_output"] = max_output
+
+
+
+    # -----------------------------
+    # capability
+    # -----------------------------
+
+
+    caps = extract_capabilities(
+        html
+    )
+
+
+    if caps:
+
+        result["capability"] = caps
+
+
+
+    # -----------------------------
+    # raw html codes
+    # -----------------------------
+
+
+    result["detail_parsed"] = True
 
 
 
@@ -301,171 +426,31 @@ def extract_provider_info(
 
 
 
-
-
-# ============================================================
-# Detail merge
-# ============================================================
-
-
-def enrich_model(
-    model: Dict[str, Any]
-) -> Dict[str, Any]:
-    """
-    补充模型详情
-    """
-
-
-
-    model_id = model.get(
-
-        "model_id",
-
-        ""
-
-    )
-
-
-    name = model.get(
-
-        "name",
-
-        ""
-
-    )
-
-
-
-    capability = detect_capability(
-
-        model_id,
-
-        name
-
-    )
-
-
-
-    metadata = model.get(
-
-        "metadata",
-
-        {}
-
-    )
-
-
-
-    detail = {
-
-
-
-        "capability":
-
-            capability,
-
-
-
-        "score":
-
-            model.get(
-
-                "score",
-
-                0
-
-            ),
-
-
-
-        "api_base":
-
-            model.get(
-
-                "api_base"
-
-            ),
-
-
-
-        "api_key_env":
-
-            model.get(
-
-                "api_key_env"
-
-            ),
-
-
-
-        "metadata":
-
-            metadata,
-
-    }
-
-
-
-    model.update(
-
-        detail
-
-    )
-
-
-
-    return model
-
-
-
-
-
-# ============================================================
-# Public API
-# ============================================================
+# ------------------------------------------------
+# batch api
+# ------------------------------------------------
 
 
 def parse_details(
     models: List[Dict]
 ) -> List[Dict]:
-    """
-    批量详情解析
-    """
-
-
 
     result = []
 
 
-
     for model in models:
 
-
-        try:
-
-
-            result.append(
-
-                enrich_model(
-
-                    model
-
-                )
-
-            )
-
-
-        except Exception:
-
-
-            logger.exception(
-
-                "detail parse failed: %s",
-
+        result.append(
+            parse_detail(
                 model
-
             )
+        )
 
+
+    logger.info(
+        "detail parser result: %s",
+        len(result)
+    )
 
 
     return result

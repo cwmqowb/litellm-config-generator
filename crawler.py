@@ -1,669 +1,466 @@
 """
 crawler.py
 
-FreeLLM模型列表爬虫
+FreeLLM model crawler.
 
+Responsibilities:
+- Crawl freellm.net models page
+- Extract ranked model list
+- Extract:
+    - rank
+    - name
+    - provider
+    - score
+    - detail url
 
-职责:
-
-1. 请求 freellm 模型列表页面
-
-2. 解码 HTML entity
-
-3. 提取页面中的模型 JSON
-
-4. 输出原始模型 dict
-
-
-输出:
-
-List[dict]
-
-
-后续:
-
-parser.py
-    |
-normalizer.py
-    |
-List[ModelInfo]
-
-
-禁止:
-
-ProviderModel
-LogicalModel
+Detail information should be handled by detail_parser.py
 """
 
-
-from __future__ import annotations
-
-
-import html
-
-import json
-
-import logging
-
 import re
-
-
-from typing import Any, Dict, List
-
-
+import json
+import gzip
+import logging
+from typing import List, Dict, Optional
+from urllib.parse import urljoin
 
 import requests
-
 
 
 logger = logging.getLogger(__name__)
 
 
+BASE_URL = "https://freellm.net"
 
-
-
-# ============================================================
-# Config
-# ============================================================
-
-
-DEFAULT_URL = (
-
+MODELS_URL = (
     "https://freellm.net/models/?free=1"
-
 )
 
 
-
 HEADERS = {
-
-
     "User-Agent":
-
-        "Mozilla/5.0 "
-
-        "(Windows NT 10.0; Win64; x64)"
-
+        (
+            "Mozilla/5.0 "
+            "(Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 "
+            "(KHTML, like Gecko) "
+            "Chrome/120 Safari/537.36"
+        ),
+    "Accept":
+        (
+            "text/html,"
+            "application/xhtml+xml,"
+            "application/xml;q=0.9,"
+            "*/*;q=0.8"
+        ),
 }
 
 
-
-TIMEOUT = 30
-
-
-
-
-
-# ============================================================
+# -------------------------------------------------
 # HTTP
-# ============================================================
+# -------------------------------------------------
 
-
-def fetch_page(
-    url: str = DEFAULT_URL
-) -> str:
+def fetch_html(url: str) -> str:
     """
-    获取网页
+    Fetch page html.
     """
-
-    try:
-
-
-        response = requests.get(
-
-            url,
-
-            headers=HEADERS,
-
-            timeout=TIMEOUT
-
-        )
-
-
-        response.raise_for_status()
-
-
-
-        return response.text
-
-
-
-    except Exception as e:
-
-
-        logger.error(
-
-            "fetch freellm failed: %s",
-
-            e
-
-        )
-
-
-        return ""
-
-
-
-
-
-# ============================================================
-# Decode
-# ============================================================
-
-
-def decode_html(
-    content: str
-) -> str:
-    """
-    HTML entity解码
-
-
-    示例:
-
-    &#34;models&#34;
-
-        |
-
-        v
-
-    "models"
-
-    """
-
-    return html.unescape(
-        content
-    )
-
-
-
-
-
-# ============================================================
-# Extract JSON
-# ============================================================
-
-
-def extract_json_objects(
-    source: str
-) -> List[Any]:
-    """
-    提取页面script中的JSON
-
-    """
-
-    result = []
-
-
-
-    scripts = re.findall(
-
-        r"<script[^>]*>(.*?)</script>",
-
-        source,
-
-        re.S
-
-    )
-
-
-
-    for script in scripts:
-
-
-        text = script.strip()
-
-
-
-        if not text:
-
-            continue
-
-
-
-        # 尝试完整JSON
-
-        if (
-
-            text.startswith("{")
-
-            or
-
-            text.startswith("[")
-
-        ):
-
-
-            try:
-
-
-                result.append(
-
-                    json.loads(
-
-                        text
-
-                    )
-
-                )
-
-
-            except Exception:
-
-
-                pass
-
-
-
-        # 查找包含models片段
-
-        for match in re.finditer(
-
-            r'\{.*?"models"\s*:\s*\[.*?\].*?\}',
-
-            text,
-
-            re.S
-
-        ):
-
-
-            try:
-
-
-                result.append(
-
-                    json.loads(
-
-                        match.group()
-
-                    )
-
-                )
-
-
-            except Exception:
-
-
-                pass
-
-
-
-    return result
-
-
-
-
-
-# ============================================================
-# Find models
-# ============================================================
-
-
-def find_models(
-    data: Any
-) -> List[Dict]:
-
-
-    result = []
-
-
-
-    if isinstance(
-
-        data,
-
-        dict
-
-    ):
-
-
-
-        for key, value in data.items():
-
-
-
-            if key.lower() == "models":
-
-
-
-                if isinstance(
-
-                    value,
-
-                    list
-
-                ):
-
-
-                    result.extend(
-
-                        [
-
-                            x
-
-                            for x in value
-
-                            if isinstance(
-
-                                x,
-
-                                dict
-
-                            )
-
-                        ]
-
-                    )
-
-
-
-
-            else:
-
-
-                result.extend(
-
-                    find_models(
-
-                        value
-
-                    )
-
-                )
-
-
-
-
-    elif isinstance(
-
-        data,
-
-        list
-
-    ):
-
-
-        for item in data:
-
-
-            result.extend(
-
-                find_models(
-
-                    item
-
-                )
-
-            )
-
-
-
-    return result
-
-
-
-
-
-# ============================================================
-# Model normalize
-# ============================================================
-
-
-def normalize_raw_model(
-    item: Dict
-) -> Dict:
-
-
-    model_id = (
-
-        item.get(
-
-            "id"
-
-        )
-
-        or
-
-        item.get(
-
-            "model"
-
-        )
-
-        or
-
-        ""
-
-    )
-
-
-
-    name = (
-
-        item.get(
-
-            "name"
-
-        )
-
-        or
-
-        model_id
-
-    )
-
-
-
-    provider = ""
-
-
-
-    if "/" in model_id:
-
-
-        provider = (
-
-            model_id
-
-            .split("/")[0]
-
-        )
-
-
-
-    return {
-
-
-        "name":
-
-            name,
-
-
-
-        "model_id":
-
-            model_id,
-
-
-
-        "provider":
-
-            provider,
-
-
-
-        "metadata":
-
-            item,
-
-    }
-
-
-
-
-
-# ============================================================
-# Public API
-# ============================================================
-
-
-def crawl_models(
-    top_k: int = 200
-) -> List[Dict]:
-    """
-    主入口
-
-
-    返回:
-
-    List[dict]
-
-    """
-
-
 
     logger.info(
+        "fetch html: %s",
+        url
+    )
 
-        "crawl models from %s",
+    response = requests.get(
+        url,
+        headers=HEADERS,
+        timeout=30
+    )
 
-        DEFAULT_URL
+    response.raise_for_status()
 
+
+    content = response.content
+
+
+    # gzip fallback
+    if (
+        response.headers.get(
+            "content-encoding"
+        )
+        == "gzip"
+    ):
+        try:
+            content = gzip.decompress(
+                content
+            )
+        except Exception:
+            pass
+
+
+    html = content.decode(
+        "utf-8",
+        errors="ignore"
+    )
+
+
+    return html
+
+
+
+# -------------------------------------------------
+# helpers
+# -------------------------------------------------
+
+def clean_text(value: str) -> str:
+    if not value:
+        return ""
+
+    return (
+        value
+        .replace("&amp;", "&")
+        .replace("&#39;", "'")
+        .replace("&quot;", '"')
+        .strip()
     )
 
 
 
-    page = fetch_page()
+def extract_attr(
+    tag: str,
+    attr: str
+) -> Optional[str]:
+    """
+    Extract html attribute.
 
+    Example:
+        data-score="95"
+    """
 
-
-    if not page:
-
-
-        return []
-
-
-
-    decoded = decode_html(
-
-        page
-
+    pattern = (
+        rf'{attr}="([^"]*)"'
     )
 
-
-
-    json_objects = extract_json_objects(
-
-        decoded
-
+    match = re.search(
+        pattern,
+        tag
     )
 
+    if not match:
+        return None
+
+    return match.group(1)
+
+
+
+# -------------------------------------------------
+# Main parser
+# -------------------------------------------------
+
+def parse_model_rows(
+    html: str
+) -> List[Dict]:
 
 
     models = []
 
 
+    rows = re.findall(
+        r'<tr\s+class="model-row".*?</tr>',
+        html,
+        re.S
+    )
 
-    for obj in json_objects:
+
+    logger.info(
+        "model-row found: %s",
+        len(rows)
+    )
 
 
-        models.extend(
+    rank = 1
 
-            find_models(
 
-                obj
+    for row in rows:
 
-            )
 
+        # -------------------------
+        # attributes
+        # -------------------------
+
+        name = extract_attr(
+            row,
+            "data-name"
         )
 
+
+        provider = extract_attr(
+            row,
+            "data-provider"
+        )
+
+
+        score = extract_attr(
+            row,
+            "data-score"
+        )
+
+
+        modality = extract_attr(
+            row,
+            "data-modality"
+        )
+
+
+        context = extract_attr(
+            row,
+            "data-context"
+        )
+
+
+        released = extract_attr(
+            row,
+            "data-released"
+        )
+
+
+        verified = extract_attr(
+            row,
+            "data-verified"
+        )
+
+
+        if not name:
+            continue
+
+
+
+        # -------------------------
+        # detail url
+        # -------------------------
+
+        detail_path = None
+
+
+        link = re.search(
+            r'href="([^"]+/models/[^"]+)"',
+            row
+        )
+
+
+        if link:
+            detail_path = link.group(1)
+
+
+
+        detail_url = (
+            urljoin(
+                BASE_URL,
+                detail_path
+            )
+            if detail_path
+            else None
+        )
+
+
+        try:
+            score_value = float(score)
+        except Exception:
+            score_value = 0
+
+
+
+        try:
+            context_value = int(context)
+        except Exception:
+            context_value = None
+
+
+
+        model = {
+
+            # ranking
+            "rank": rank,
+
+
+            # basic info
+            "id": name,
+            "name": clean_text(name),
+            "provider": clean_text(provider),
+
+
+            # ranking score
+            "score": score_value,
+
+
+            # metadata
+            "modality": (
+                modality.split(",")
+                if modality
+                else []
+            ),
+
+            "context": context_value,
+
+            "released": released,
+
+            "verified":
+                verified == "1",
+
+
+            # detail page
+            "detail_url": detail_url,
+
+        }
+
+
+        models.append(model)
+
+
+        rank += 1
+
+
+
+    return models
+
+
+
+# -------------------------------------------------
+# fallback json parser
+# -------------------------------------------------
+
+def parse_json_models(
+    html: str
+) -> List[Dict]:
+
+    """
+    Old fallback.
+    Keep compatibility.
+    """
+
+    models = []
+
+
+    matches = re.findall(
+        r'\{"@type":"ListItem".*?\}',
+        html
+    )
+
+
+    for item in matches:
+
+        try:
+
+            data = json.loads(
+                item
+            )
+
+            name = (
+                data
+                .get("item", {})
+                .get("name")
+            )
+
+            if name:
+                models.append(
+                    {
+                        "rank":
+                            len(models)+1,
+
+                        "id":
+                            name,
+
+                        "name":
+                            name,
+
+                        "provider":
+                            "",
+
+                        "score":
+                            0,
+
+                        "detail_url":
+                            None,
+                    }
+                )
+
+        except Exception:
+            continue
+
+
+    return models
+
+
+
+# -------------------------------------------------
+# public api
+# -------------------------------------------------
+
+def crawl_models(
+    top_k: int = 50,
+    url: str = MODELS_URL
+) -> List[Dict]:
+
+    """
+    Crawl freellm models.
+
+    Args:
+        top_k:
+            number of models
+
+    Returns:
+        list of models
+    """
+
+
+    logger.info(
+        "crawl models from %s",
+        url
+    )
+
+
+    html = fetch_html(
+        url
+    )
+
+
+    models = parse_model_rows(
+        html
+    )
 
 
     if not models:
 
-
         logger.warning(
-
-            "no json models found"
-
+            "model-row parser failed, "
+            "try json fallback"
         )
 
 
-        return []
-
-
-
-    result = []
-
-
-
-    seen = set()
-
-
-
-    for item in models:
-
-
-        model = normalize_raw_model(
-
-            item
-
+        models = parse_json_models(
+            html
         )
-
-
-
-        model_id = model.get(
-
-            "model_id"
-
-        )
-
-
-
-        if not model_id:
-
-
-            continue
-
-
-
-        if model_id in seen:
-
-
-            continue
-
-
-
-        seen.add(
-
-            model_id
-
-        )
-
-
-
-        result.append(
-
-            model
-
-        )
-
-
-
-        if len(result) >= top_k:
-
-
-            break
-
 
 
     logger.info(
-
-        "crawler result: %s",
-
-        len(result)
-
+        "raw extracted models: %s",
+        len(models)
     )
 
+
+    if models:
+
+        logger.info(
+            "first model: %s",
+            models[0]
+        )
+
+
+    result = models[:top_k]
+
+
+    logger.info(
+        "crawler result: %s",
+        len(result)
+    )
 
 
     return result
