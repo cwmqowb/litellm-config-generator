@@ -1,70 +1,81 @@
 """
 parser.py
 
-模型列表解析器
+Generic data parser utilities.
 
 
-职责:
+Responsibility:
 
-将 crawler 输出的原始 dict
-
-转换为标准模型字典
-
-
-输入:
-
-List[dict]
+- Parse raw dictionaries
+- Extract safe values
+- Normalize basic fields
 
 
-输出:
+IMPORTANT:
 
-List[dict]
+parser.py does NOT create ModelInfo.
 
+The final conversion:
 
-下一步:
-
-normalizer.py
-
-List[dict]
-    |
-    v
-List[ModelInfo]
+detail_parser.py
+        |
+        v
+ModelInfo
 
 
-禁止:
+parser.py MUST NOT handle:
 
-ProviderModel
-LogicalModel
+- name
+- display_name
+- title
+- model alias
+- LiteLLM model name
+
 """
-
 
 from __future__ import annotations
 
 
 import logging
-
-
-from typing import Any, Dict, List
-
-
+from typing import Any, Dict, List, Optional
 
 
 logger = logging.getLogger(__name__)
 
 
 
-
-
 # ============================================================
-# Utils
+# Value helpers
 # ============================================================
 
 
 def get_value(
     data: Dict[str, Any],
     keys: List[str],
-    default=None
+    default=None,
 ):
+    """
+    Get first existing key.
+
+    Example:
+
+    get_value(
+        data,
+        [
+            "provider",
+            "vendor"
+        ]
+    )
+
+    """
+
+    if not isinstance(
+        data,
+        dict,
+    ):
+
+        return default
+
 
 
     for key in keys:
@@ -73,7 +84,13 @@ def get_value(
         if key in data:
 
 
-            return data[key]
+            value = data[key]
+
+
+            if value is not None:
+
+
+                return value
 
 
 
@@ -81,277 +98,186 @@ def get_value(
 
 
 
-
-
-def normalize_provider(
-    provider: str
+def get_string(
+    value: Any,
+    default: str = "",
 ) -> str:
+    """
+    Convert value to string.
+    """
 
 
-    if not provider:
+    if value is None:
 
-        return ""
-
-
-
-    return (
-
-        str(provider)
-
-        .strip()
-
-        .lower()
-
-    )
+        return default
 
 
+
+    return str(value).strip()
+
+
+
+def get_float(
+    value: Any,
+    default: float = 0.0,
+) -> float:
+    """
+    Safe float conversion.
+    """
+
+    try:
+
+        return float(value)
+
+    except Exception:
+
+        return default
+
+
+
+def get_list(
+    value: Any,
+) -> List[str]:
+    """
+    Convert value to list[str].
+    """
+
+    if value is None:
+
+        return []
+
+
+
+    if isinstance(
+        value,
+        str,
+    ):
+
+        return [
+
+            x.strip()
+
+            for x in value.split(",")
+
+            if x.strip()
+
+        ]
+
+
+
+    if isinstance(
+        value,
+        list,
+    ):
+
+        return [
+
+            str(x).strip()
+
+            for x in value
+
+            if str(x).strip()
+
+        ]
+
+
+
+    return []
 
 
 
 # ============================================================
-# Parse single model
+# Raw crawler parser
 # ============================================================
 
 
-def parse_model(
-    item: Dict[str, Any]
+def parse_crawler_item(
+    item: Dict[str, Any],
 ) -> Dict[str, Any]:
     """
-    单模型解析
+    Normalize crawler output.
+
+
+    Input:
+
+    {
+        provider,
+        score,
+        detail_url,
+        slug
+    }
+
+
+    Output:
+
+    same structure.
+
+
+    No model_id generated.
     """
 
 
-
-    model_id = get_value(
-
+    if not isinstance(
         item,
+        dict,
+    ):
 
-        [
-
-            "model_id",
-
-            "id",
-
-            "model",
-
-        ],
-
-        ""
-
-    )
+        return {}
 
 
 
-    name = get_value(
-
-        item,
-
-        [
-
-            "name",
-
-        ],
-
-        model_id
-
-    )
-
-
-
-    provider = normalize_provider(
-
-        get_value(
-
-            item,
-
-            [
-
-                "provider",
-
-            ],
-
-            ""
-
-        )
-
-    )
-
-
-
-    result = {
-
-
-
-        "name":
-
-            name,
-
-
-
-        "model_id":
-
-            model_id,
-
+    return {
 
 
         "provider":
 
-            provider,
-
-
-
-        "api_base":
-
-            get_value(
-
-                item,
-
-                [
-
-                    "api_base",
-
-                    "base_url",
-
-                ]
-
-            ),
-
-
-
-        "api_key_env":
-
-            get_value(
-
-                item,
-
-                [
-
-                    "api_key_env",
-
-                ]
-
-            ),
-
-
-
-        "api_format":
-
-            get_value(
-
-                item,
-
-                [
-
-                    "api_format",
-
-                ],
-
-                "openai"
-
-            ),
-
-
-
-
-        "capability":
-
-            get_value(
-
-                item,
-
-                [
-
-                    "capability",
-
-                    "capabilities",
-
-                ],
-
-                []
-
-            ),
-
-
-
-
-        "context_window":
-
-            get_value(
-
-                item,
-
-                [
-
-                    "context_window",
-
-                    "context",
-
-                ]
-
-            ),
-
-
-
-
-        "max_output_tokens":
-
-            get_value(
-
-                item,
-
-                [
-
-                    "max_output_tokens",
-
-                    "max_tokens",
-
-                ]
-
-            ),
-
-
-
-
-        "score":
-
-            float(
+            get_string(
 
                 get_value(
 
                     item,
 
                     [
+                        "provider"
+                    ]
 
-                        "score",
+                )
 
+            ),
+
+
+
+        "score":
+
+            get_float(
+
+                get_value(
+
+                    item,
+
+                    [
+                        "score"
                     ],
 
                     0
 
                 )
 
-                or 0
-
             ),
 
 
 
+        "detail_url":
 
-        "free":
-
-            bool(
+            get_string(
 
                 get_value(
 
                     item,
 
                     [
-
-                        "free",
-
-                    ],
-
-                    True
+                        "detail_url"
+                    ]
 
                 )
 
@@ -359,20 +285,19 @@ def parse_model(
 
 
 
+        "slug":
 
-        "metadata":
+            get_string(
 
-            get_value(
+                get_value(
 
-                item,
+                    item,
 
-                [
+                    [
+                        "slug"
+                    ]
 
-                    "metadata",
-
-                ],
-
-                item
+                )
 
             ),
 
@@ -380,54 +305,44 @@ def parse_model(
 
 
 
-    return result
-
-
-
-
-
 # ============================================================
-# Parse list
+# Batch parser
 # ============================================================
 
 
-def parse_models(
-    models: List[Dict]
-) -> List[Dict]:
+def parse_crawler_items(
+    items: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """
+    Parse crawler result list.
+    """
 
 
     result = []
 
 
 
-    for item in models:
-
-
-        if not isinstance(
-
-            item,
-
-            dict
-
-        ):
-
-
-            continue
-
+    for item in items:
 
 
         try:
 
 
-            result.append(
+            parsed = parse_crawler_item(
 
-                parse_model(
-
-                    item
-
-                )
+                item
 
             )
+
+
+            if parsed:
+
+
+                result.append(
+
+                    parsed
+
+                )
 
 
 
@@ -436,17 +351,15 @@ def parse_models(
 
             logger.exception(
 
-                "parse model failed: %s",
+                "parse crawler item failed: %s",
 
-                item
+                item,
 
             )
 
 
 
     return result
-
-
 
 
 
@@ -456,14 +369,38 @@ def parse_models(
 
 
 def parse(
-    models: List[Dict]
-) -> List[Dict]:
+    data,
+):
     """
-    parser入口
+    Public parser entry.
+
+
+    Currently only normalizes crawler output.
+
     """
 
-    return parse_models(
+    if isinstance(
+        data,
+        list,
+    ):
 
-        models
+        return parse_crawler_items(
 
-    )
+            data
+
+        )
+
+
+    if isinstance(
+        data,
+        dict,
+    ):
+
+        return parse_crawler_item(
+
+            data
+
+        )
+
+
+    return {}

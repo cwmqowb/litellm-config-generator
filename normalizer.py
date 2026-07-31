@@ -1,253 +1,181 @@
 """
 normalizer.py
 
-模型标准化
+Normalize raw model dictionaries into ModelInfo.
 
 
-职责:
-
-输入:
-
-parser/detail_parser输出的dict
-
-
-输出:
-
-List[ModelInfo]
-
-
-核心:
+Architecture:
 
 dict
-    |
-    v
+ |
+ v
+normalizer.py
+ |
+ v
 ModelInfo
 
 
-禁止:
+Responsibilities:
 
-ProviderModel
-primary_model
-providers
-provider_models
+- Clean provider
+- Clean capability
+- Clean modality
+- Fill provider defaults
+
+
+IMPORTANT:
+
+This module MUST NOT create:
+
+- name
+- display_name
+- title
+
+This module MUST NOT infer fake model_id.
+
+model_id MUST come from:
+
+detail_parser.py
+
+API Details -> Model ID
+
 """
-
 
 from __future__ import annotations
 
 
 import logging
-
-
 from typing import Any, Dict, List
 
 
-
-from models import (
-    ModelInfo,
-    ModelCapability,
-    ModelPricing,
-)
-
+from models import ModelInfo
 
 
 from providers import (
-    get_api_base,
-    get_api_key_env,
     normalize_provider_name,
+    get_api_base,
 )
-
 
 
 logger = logging.getLogger(__name__)
 
 
 
-
-
 # ============================================================
-# Capability
+# Helpers
 # ============================================================
 
 
-def build_capability(
-    values: Any
-) -> ModelCapability:
+def normalize_list(
+    value: Any,
+) -> List[str]:
     """
-    构造能力对象
+    Normalize list values.
     """
 
+    if value is None:
 
-
-    capability = ModelCapability()
+        return []
 
 
 
     if isinstance(
-
-        values,
-
-        str
-
+        value,
+        str,
     ):
 
+        return [
 
-        values = [
+            item.strip().lower()
 
-            values
+            for item in value.split(",")
+
+            if item.strip()
 
         ]
 
 
 
-    if not isinstance(
-
-        values,
-
-        list
-
+    if isinstance(
+        value,
+        list,
     ):
 
+        return [
 
-        values = []
+            str(item)
 
+            .strip()
 
+            .lower()
 
-    normalized = [
+            for item in value
 
-        str(x).lower()
+            if str(item).strip()
 
-        for x in values
+        ]
 
-    ]
 
 
+    return []
 
-    capability.raw = normalized
 
 
+def normalize_score(
+    value: Any,
+) -> float:
+    """
+    Normalize score.
+    """
 
-    for item in normalized:
+    try:
 
+        return float(value or 0)
 
-        if item == "chat":
+    except Exception:
 
-            capability.chat = True
-
-
-
-        elif item == "vision":
-
-            capability.vision = True
-
-
-
-        elif item == "reasoning":
-
-            capability.reasoning = True
-
-
-
-        elif item == "coding":
-
-            capability.coding = True
-
-
-
-        elif item == "embedding":
-
-            capability.embedding = True
-
-
-
-        elif item == "rerank":
-
-            capability.rerank = True
-
-
-
-        elif item == "image":
-
-            capability.image = True
-
-
-
-        elif item == "audio":
-
-            capability.audio = True
-
-
-
-        elif item in (
-
-            "tool",
-
-            "tool_calling"
-
-        ):
-
-            capability.tool_calling = True
-
-
-
-        elif item == "json":
-
-            capability.json_mode = True
-
-
-
-
-    if not normalized:
-
-        capability.chat = True
-
-
-
-    return capability
-
-
+        return 0.0
 
 
 
 # ============================================================
-# Normalize
+# Single normalize
 # ============================================================
 
 
 def normalize_model(
-    data: Dict[str, Any]
+    data: Dict[str, Any],
 ) -> ModelInfo:
     """
-    dict -> ModelInfo
+    Convert dict -> ModelInfo.
+
+
+    Expected input:
+
+
+    {
+        provider,
+        model_id,
+        api_base,
+        score,
+        context,
+        capability,
+        modality,
+        detail_url,
+        best_for
+    }
+
     """
 
 
+    if not isinstance(
+        data,
+        dict,
+    ):
 
-    model_id = (
-
-        data.get(
-
-            "model_id"
-
+        raise TypeError(
+            "model data must be dict"
         )
-
-        or ""
-
-    )
-
-
-
-    name = (
-
-        data.get(
-
-            "name"
-
-        )
-
-        or model_id
-
-    )
 
 
 
@@ -255,36 +183,27 @@ def normalize_model(
 
         data.get(
 
-            "provider"
+            "provider",
+
+            ""
 
         )
-
-        or ""
 
     )
 
 
 
-    if not provider and "/" in model_id:
-
-
-        provider = (
-
-            model_id
-
-            .split("/")[0]
-
-        )
-
-
-
-    capability = build_capability(
+    model_id = (
 
         data.get(
 
-            "capability"
+            "model_id",
+
+            ""
 
         )
+
+        or ""
 
     )
 
@@ -310,165 +229,129 @@ def normalize_model(
 
 
 
-    api_key_env = (
+    return ModelInfo(
 
-        data.get(
 
-            "api_key_env"
+        provider=
 
-        )
-
-        or
-
-        get_api_key_env(
-
-            provider
-
-        )
-
-    )
+            provider,
 
 
 
-    score = float(
+        model_id=
 
-        data.get(
-
-            "score",
-
-            0
-
-        )
-
-        or 0
-
-    )
+            model_id,
 
 
 
-    pricing = ModelPricing(
+        api_base=
 
-        free=
+            api_base,
 
-            bool(
+
+
+        score=
+
+            normalize_score(
 
                 data.get(
 
-                    "free",
+                    "score",
 
-                    True
+                    0
 
                 )
 
-            )
-
-    )
+            ),
 
 
 
-
-
-    return ModelInfo(
-
-        name=name,
-
-
-        model_id=model_id,
-
-
-        provider=provider,
-
-
-
-        api_base=api_base,
-
-
-        api_key_env=api_key_env,
-
-
-
-        api_format=
+        context=
 
             data.get(
 
-                "api_format",
-
-                "openai"
+                "context"
 
             ),
 
 
 
-        capability=capability,
+        capability=
 
+            normalize_list(
 
+                data.get(
 
-        context_window=
+                    "capability",
 
-            data.get(
+                    []
 
-                "context_window"
-
-            ),
-
-
-
-        max_output_tokens=
-
-            data.get(
-
-                "max_output_tokens"
+                )
 
             ),
 
 
 
-        free=
+        modality=
 
-            pricing.free,
+            normalize_list(
+
+                data.get(
+
+                    "modality",
+
+                    []
+
+                )
+
+            ),
 
 
 
-        pricing=pricing,
-
-
-
-        score=score,
-
-
-
-        metadata=
+        detail_url=
 
             data.get(
 
-                "metadata",
+                "detail_url",
 
-                {}
+                "",
+
+            ),
+
+
+
+        best_for=
+
+            normalize_list(
+
+                data.get(
+
+                    "best_for",
+
+                    []
+
+                )
 
             ),
 
     )
-
-
 
 
 
 # ============================================================
-# Public API
+# Batch normalize
 # ============================================================
 
 
 def normalize_models(
-    models: List[Dict[str, Any]]
+    models: List[Dict[str, Any]],
 ) -> List[ModelInfo]:
     """
-    批量标准化
+    Normalize model list.
     """
-
 
 
     result = []
-
 
 
     seen = set()
@@ -488,9 +371,16 @@ def normalize_models(
             )
 
 
+            if not model.is_valid():
 
-            if not model.model_id:
 
+                logger.warning(
+
+                    "invalid model skipped: %s",
+
+                    item,
+
+                )
 
                 continue
 
@@ -498,6 +388,14 @@ def normalize_models(
 
             if model.model_id in seen:
 
+
+                logger.info(
+
+                    "duplicate model skipped: %s",
+
+                    model.model_id,
+
+                )
 
                 continue
 
@@ -508,7 +406,6 @@ def normalize_models(
                 model.model_id
 
             )
-
 
 
             result.append(
@@ -526,10 +423,28 @@ def normalize_models(
 
                 "normalize failed: %s",
 
-                item
+                item,
 
             )
 
 
 
     return result
+
+
+
+# ============================================================
+# Public API
+# ============================================================
+
+
+def normalize(
+    models: List[Dict[str, Any]],
+) -> List[ModelInfo]:
+    """
+    Public entry.
+    """
+
+    return normalize_models(
+        models
+    )

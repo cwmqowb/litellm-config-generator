@@ -1,22 +1,52 @@
 """
 config_builder.py
 
-Build LiteLLM config.yaml from unified ModelInfo.
+Build LiteLLM config from unified ModelInfo.
+
 
 Input:
+
     List[ModelInfo]
 
+
 Output:
-    LiteLLM compatible yaml
+
+    LiteLLM compatible config.yaml
+
+
+Rules:
+
+1. litellm_params.model MUST use:
+
+       ModelInfo.model_id
+
+
+2. Never use:
+
+       name
+       display_name
+       title
+
+
+3. Provider API key mapping:
+
+       providers.py
+
+
+4. Metadata keeps:
+
+       provider
+       score
+       capability
+       context
 
 """
 
 from __future__ import annotations
 
 
-import os
 import logging
-from typing import List, Dict
+from typing import Dict, List
 
 
 import yaml
@@ -25,90 +55,26 @@ import yaml
 from models import ModelInfo
 
 
+from providers import (
+    get_api_base,
+    get_api_key_env,
+)
+
 
 logger = logging.getLogger(__name__)
 
 
 
-# --------------------------------------------------
-# Provider API Key mapping
-# --------------------------------------------------
-
-PROVIDER_KEY_MAP = {
-
-    "nvidia":
-        "os.environ/NVIDIA_API_KEY",
-
-    "nvidia nim":
-        "os.environ/NVIDIA_API_KEY",
-
-
-    "openrouter":
-        "os.environ/OPENROUTER_API_KEY",
-
-
-    "github models":
-        "os.environ/GITHUB_MODELS_API_KEY",
-
-
-    "github":
-        "os.environ/GITHUB_MODELS_API_KEY",
-
-
-    "modelscope":
-        "os.environ/MODELSCOPE_API_KEY",
-
-
-    "sambanova":
-        "os.environ/SAMBANOVA_API_KEY",
-
-
-    "agnes ai":
-        "os.environ/AGNES_API_KEY",
-
-
-    "agnes":
-        "os.environ/AGNES_API_KEY",
-
-
-    "kilo code":
-        "os.environ/KILO_API_KEY",
-
-}
-
-
-
-
-# --------------------------------------------------
-# Provider Base URL fallback
-# --------------------------------------------------
-
-PROVIDER_BASE_URL = {
-
-
-    "nvidia":
-        "https://integrate.api.nvidia.com/v1",
-
-
-    "nvidia nim":
-        "https://integrate.api.nvidia.com/v1",
-
-
-    "openrouter":
-        "https://openrouter.ai/api/v1",
-
-
-}
-
-
-
-
-# --------------------------------------------------
-# Builder
-# --------------------------------------------------
+# ============================================================
+# Config Builder
+# ============================================================
 
 
 class ConfigBuilder:
+    """
+    Convert ModelInfo list into LiteLLM config.
+    """
+
 
 
     def __init__(
@@ -120,23 +86,34 @@ class ConfigBuilder:
 
 
 
-    # ----------------------------------------------
-    # public
-    # ----------------------------------------------
+    # --------------------------------------------------------
+    # Public
+    # --------------------------------------------------------
 
 
-    def build(self) -> Dict:
+    def build(
+        self,
+    ) -> Dict:
+        """
+        Build config dictionary.
+        """
 
 
-        valid_models = (
-            self._filter_models()
-        )
+        valid_models = [
+
+            model
+
+            for model in self.models
+
+            if model.is_valid()
+
+        ]
 
 
         return {
 
-
             "model_list":
+
                 self._build_model_list(
                     valid_models
                 )
@@ -145,57 +122,9 @@ class ConfigBuilder:
 
 
 
-
-    # ----------------------------------------------
-    # filtering
-    # ----------------------------------------------
-
-
-    def _filter_models(
-        self,
-    ) -> List[ModelInfo]:
-
-
-        result = []
-
-
-        for model in self.models:
-
-
-            if not model.model_id:
-
-                logger.warning(
-                    "skip model without id: %s",
-                    model
-                )
-
-                continue
-
-
-
-            if not model.provider:
-
-                logger.warning(
-                    "skip model without provider"
-                )
-
-                continue
-
-
-
-            result.append(
-                model
-            )
-
-
-        return result
-
-
-
-
-    # ----------------------------------------------
-    # model list
-    # ----------------------------------------------
+    # --------------------------------------------------------
+    # model_list
+    # --------------------------------------------------------
 
 
     def _build_model_list(
@@ -204,93 +133,111 @@ class ConfigBuilder:
     ) -> List[Dict]:
 
 
-        items = []
+        result = []
 
 
         for model in sorted(
+
             models,
+
             key=lambda x:
-                x.score or 0,
+
+                x.score,
 
             reverse=True,
+
         ):
 
 
-            item = (
-                self._build_single_model(
+            result.append(
+
+                self._build_single(
                     model
                 )
+
             )
 
 
-            if item:
-
-                items.append(
-                    item
-                )
-
-
-        return items
+        return result
 
 
 
-
-    # ----------------------------------------------
+    # --------------------------------------------------------
     # single model
-    # ----------------------------------------------
+    # --------------------------------------------------------
 
 
-    def _build_single_model(
+    def _build_single(
         self,
         model: ModelInfo,
     ) -> Dict:
+        """
+        Build one LiteLLM model entry.
+        """
 
 
-        params = {
+        litellm_params = {
+
+
+            # IMPORTANT:
+            #
+            # real provider model id
+            #
 
             "model":
-                model.model_id,
+
+                model.model_id
 
         }
 
 
 
-        # -------------------------
         # api_base
-        # -------------------------
 
         api_base = (
+
             model.api_base
+
             or
-            self._get_provider_base(
+
+            get_api_base(
                 model.provider
             )
+
         )
 
 
         if api_base:
 
-            params["api_base"] = (
-                api_base
-            )
+            litellm_params[
+
+                "api_base"
+
+            ] = api_base
 
 
 
-        # -------------------------
         # api key
-        # -------------------------
 
-        api_key = (
-            self._get_api_key(
+        api_key_env = (
+
+            get_api_key_env(
                 model.provider
             )
+
         )
 
 
-        if api_key:
+        if api_key_env:
 
-            params["api_key"] = (
-                api_key
+            litellm_params[
+
+                "api_key"
+
+            ] = (
+
+                f"os.environ/{api_key_env}"
+
             )
 
 
@@ -298,9 +245,13 @@ class ConfigBuilder:
         return {
 
 
+            #
+            # LiteLLM logical routing name
+            #
+
             "model_name":
 
-                self._resolve_alias(
+                self._resolve_logical_name(
                     model
                 ),
 
@@ -308,7 +259,7 @@ class ConfigBuilder:
 
             "litellm_params":
 
-                params,
+                litellm_params,
 
 
 
@@ -317,94 +268,99 @@ class ConfigBuilder:
                 {
 
                     "provider":
+
                         model.provider,
 
 
-                    "model_id":
-                        model.model_id,
-
-
                     "score":
+
                         model.score,
 
 
                     "capability":
-                        model.capability
-                        or [],
 
-
-                    "modality":
-                        model.modality
-                        or [],
+                        model.capability,
 
 
                     "context":
+
                         model.context,
 
                 }
-
 
         }
 
 
 
-
-    # ----------------------------------------------
+    # --------------------------------------------------------
     # logical model
-    # ----------------------------------------------
+    # --------------------------------------------------------
 
 
-    def _resolve_alias(
+    def _resolve_logical_name(
         self,
         model: ModelInfo,
     ) -> str:
+        """
+        Generate logical model group.
+
+        Example:
+
+        chat
+        vision
+        reasoning
+
+        """
 
 
-        caps = [
+        capability = [
 
-            x.lower()
+            item.lower()
 
-            for x in
-            (
-                model.capability
-                or []
-            )
+            for item in
+
+            model.capability
 
         ]
+
 
 
         modality = [
 
-            x.lower()
+            item.lower()
 
-            for x in
-            (
-                model.modality
-                or []
-            )
+            for item in
+
+            model.modality
 
         ]
 
 
 
-        # vision
-
         if (
-            "vision" in caps
+
+            "vision"
+
+            in capability
+
             or
-            "image" in modality
+
+            "image"
+
+            in modality
+
         ):
 
             return "vision"
 
 
 
-        # reasoning
-
         if (
-            "reasoning" in caps
-            or
-            "reasoning" in modality
+
+            "reasoning"
+
+            in capability
+
         ):
 
             return "reasoning"
@@ -415,101 +371,66 @@ class ConfigBuilder:
 
 
 
-
-    # ----------------------------------------------
-    # provider mapping
-    # ----------------------------------------------
-
-
-    def _get_api_key(
-        self,
-        provider: str,
-    ):
-
-
-        key = (
-            provider
-            .lower()
-            .strip()
-        )
-
-
-        return (
-            PROVIDER_KEY_MAP.get(
-                key
-            )
-        )
-
-
-
-
-    def _get_provider_base(
-        self,
-        provider: str,
-    ):
-
-
-        key = (
-            provider
-            .lower()
-            .strip()
-        )
-
-
-        return (
-            PROVIDER_BASE_URL.get(
-                key
-            )
-        )
-
-
-
-
-# --------------------------------------------------
-# yaml helper
-# --------------------------------------------------
-
-
-def save_config(
-    config: Dict,
-    path: str="config.generated.yaml",
-):
-
-
-    with open(
-        path,
-        "w",
-        encoding="utf-8",
-    ) as f:
-
-
-        yaml.safe_dump(
-            config,
-            f,
-            allow_unicode=True,
-            sort_keys=False,
-        )
-
-
-
-    logger.info(
-        "config saved: %s",
-        path
-    )
-
-
-
-# --------------------------------------------------
-# backward compatibility
-# --------------------------------------------------
+# ============================================================
+# Helpers
+# ============================================================
 
 
 def build_config(
     models: List[ModelInfo],
-):
+) -> Dict:
+    """
+    Public helper.
+    """
 
-    builder = ConfigBuilder(
-        models
+    return (
+
+        ConfigBuilder(
+            models
+        )
+        .build()
+
     )
 
-    return builder.build()
+
+
+def save_config(
+    config: Dict,
+    path: str = "config.generated.yaml",
+):
+    """
+    Save yaml file.
+    """
+
+
+    with open(
+
+        path,
+
+        "w",
+
+        encoding="utf-8",
+
+    ) as file:
+
+
+        yaml.safe_dump(
+
+            config,
+
+            file,
+
+            allow_unicode=True,
+
+            sort_keys=False,
+
+        )
+
+
+    logger.info(
+
+        "config saved: %s",
+
+        path,
+
+    )

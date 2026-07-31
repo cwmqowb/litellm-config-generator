@@ -1,27 +1,47 @@
 """
 crawler.py
 
-FreeLLM model crawler.
+FreeLLM model list crawler.
 
-Responsibilities:
-- Crawl freellm.net models page
-- Extract ranked model list
+Responsibility ONLY:
+
+- Download models.html
+- Parse model list page
 - Extract:
-    - rank
-    - name
-    - provider
-    - score
-    - detail url
 
-Detail information should be handled by detail_parser.py
+    provider
+    score
+    detail_url
+    slug
+
+
+IMPORTANT:
+
+crawler.py MUST NOT parse:
+
+- model_id
+- display name
+- title
+- model name
+
+Real model_id MUST come from:
+
+detail_parser.py
+
+detail page:
+
+API Details -> Model ID
 """
 
-import re
-import json
+from __future__ import annotations
+
+
 import gzip
 import logging
-from typing import List, Dict, Optional
+import re
+from typing import Dict, List, Optional
 from urllib.parse import urljoin
+
 
 import requests
 
@@ -31,12 +51,14 @@ logger = logging.getLogger(__name__)
 
 BASE_URL = "https://freellm.net"
 
+
 MODELS_URL = (
     "https://freellm.net/models/?free=1"
 )
 
 
 HEADERS = {
+
     "User-Agent":
         (
             "Mozilla/5.0 "
@@ -45,6 +67,7 @@ HEADERS = {
             "(KHTML, like Gecko) "
             "Chrome/120 Safari/537.36"
         ),
+
     "Accept":
         (
             "text/html,"
@@ -55,25 +78,31 @@ HEADERS = {
 }
 
 
-# -------------------------------------------------
-# HTTP
-# -------------------------------------------------
 
-def fetch_html(url: str) -> str:
+# ============================================================
+# HTTP
+# ============================================================
+
+
+def fetch_html(
+    url: str,
+) -> str:
     """
-    Fetch page html.
+    Download html page.
     """
 
     logger.info(
         "fetch html: %s",
-        url
+        url,
     )
+
 
     response = requests.get(
         url,
         headers=HEADERS,
-        timeout=30
+        timeout=30,
     )
+
 
     response.raise_for_status()
 
@@ -81,38 +110,76 @@ def fetch_html(url: str) -> str:
     content = response.content
 
 
-    # gzip fallback
     if (
         response.headers.get(
             "content-encoding"
         )
         == "gzip"
     ):
+
         try:
+
             content = gzip.decompress(
                 content
             )
+
         except Exception:
+
             pass
 
 
-    html = content.decode(
+
+    return content.decode(
         "utf-8",
-        errors="ignore"
+        errors="ignore",
     )
 
 
-    return html
+
+# ============================================================
+# HTML helpers
+# ============================================================
+
+
+def extract_attr(
+    html: str,
+    attr: str,
+) -> Optional[str]:
+    """
+    Extract html attribute.
+
+    Example:
+
+    data-provider="NVIDIA NIM"
+
+    """
+
+    match = re.search(
+        rf'{attr}="([^"]*)"',
+        html,
+    )
+
+
+    if not match:
+
+        return None
+
+
+    return (
+        match.group(1)
+        .strip()
+    )
 
 
 
-# -------------------------------------------------
-# helpers
-# -------------------------------------------------
+def clean_text(
+    value: Optional[str],
+) -> str:
 
-def clean_text(value: str) -> str:
     if not value:
+
         return ""
+
 
     return (
         value
@@ -124,41 +191,30 @@ def clean_text(value: str) -> str:
 
 
 
-def extract_attr(
-    tag: str,
-    attr: str
-) -> Optional[str]:
-    """
-    Extract html attribute.
+# ============================================================
+# Parser
+# ============================================================
 
-    Example:
-        data-score="95"
-    """
-
-    pattern = (
-        rf'{attr}="([^"]*)"'
-    )
-
-    match = re.search(
-        pattern,
-        tag
-    )
-
-    if not match:
-        return None
-
-    return match.group(1)
-
-
-
-# -------------------------------------------------
-# Main parser
-# -------------------------------------------------
 
 def parse_model_rows(
-    html: str
+    html: str,
 ) -> List[Dict]:
+    """
+    Parse model list page.
 
+    Output example:
+
+    {
+        "provider": "NVIDIA NIM",
+        "score": 95.5,
+        "detail_url":
+            "https://freellm.net/models/xxx",
+        "slug": "xxx"
+    }
+
+
+    NO model_id here.
+    """
 
     models = []
 
@@ -166,156 +222,113 @@ def parse_model_rows(
     rows = re.findall(
         r'<tr\s+class="model-row".*?</tr>',
         html,
-        re.S
+        re.S,
     )
 
 
     logger.info(
-        "model-row found: %s",
-        len(rows)
+        "model rows found: %s",
+        len(rows),
     )
-
-
-    rank = 1
 
 
     for row in rows:
 
 
-        # -------------------------
-        # attributes
-        # -------------------------
-
-        name = extract_attr(
-            row,
-            "data-name"
-        )
-
-
         provider = extract_attr(
             row,
-            "data-provider"
+            "data-provider",
         )
 
 
         score = extract_attr(
             row,
-            "data-score"
+            "data-score",
         )
 
 
-        modality = extract_attr(
+        slug = extract_attr(
             row,
-            "data-modality"
+            "data-slug",
         )
 
 
-        context = extract_attr(
-            row,
-            "data-context"
-        )
 
+        if not provider:
 
-        released = extract_attr(
-            row,
-            "data-released"
-        )
-
-
-        verified = extract_attr(
-            row,
-            "data-verified"
-        )
-
-
-        if not name:
             continue
 
 
 
-        # -------------------------
-        # detail url
-        # -------------------------
+        detail_url = None
 
-        detail_path = None
 
 
         link = re.search(
             r'href="([^"]+/models/[^"]+)"',
-            row
+            row,
         )
 
 
         if link:
-            detail_path = link.group(1)
 
-
-
-        detail_url = (
-            urljoin(
+            detail_url = urljoin(
                 BASE_URL,
-                detail_path
+                link.group(1),
             )
-            if detail_path
-            else None
+
+
+
+        if not slug and detail_url:
+
+            slug = (
+                detail_url
+                .rstrip("/")
+                .split("/")
+                [-1]
+            )
+
+
+
+        try:
+
+            score_value = float(
+                score or 0
+            )
+
+        except Exception:
+
+            score_value = 0.0
+
+
+
+        models.append(
+
+            {
+
+                "provider":
+                    clean_text(
+                        provider
+                    ),
+
+
+                "score":
+                    score_value,
+
+
+                "detail_url":
+                    detail_url
+                    or "",
+
+
+                "slug":
+                    clean_text(
+                        slug
+                    ),
+
+            }
+
         )
-
-
-        try:
-            score_value = float(score)
-        except Exception:
-            score_value = 0
-
-
-
-        try:
-            context_value = int(context)
-        except Exception:
-            context_value = None
-
-
-
-        model = {
-
-            # ranking
-            "rank": rank,
-
-
-            # basic info
-            "id": name,
-            "name": clean_text(name),
-            "provider": clean_text(provider),
-
-
-            # ranking score
-            "score": score_value,
-
-
-            # metadata
-            "modality": (
-                modality.split(",")
-                if modality
-                else []
-            ),
-
-            "context": context_value,
-
-            "released": released,
-
-            "verified":
-                verified == "1",
-
-
-            # detail page
-            "detail_url": detail_url,
-
-        }
-
-
-        models.append(model)
-
-
-        rank += 1
 
 
 
@@ -323,99 +336,91 @@ def parse_model_rows(
 
 
 
-# -------------------------------------------------
-# fallback json parser
-# -------------------------------------------------
+# ============================================================
+# JSON fallback
+# ============================================================
+
 
 def parse_json_models(
-    html: str
+    html: str,
 ) -> List[Dict]:
+    """
+    Fallback parser.
+
+    Only extracts:
+
+    provider
+    detail_url
+    slug
 
     """
-    Old fallback.
-    Keep compatibility.
-    """
 
-    models = []
+    result = []
 
 
     matches = re.findall(
         r'\{"@type":"ListItem".*?\}',
-        html
+        html,
     )
 
 
     for item in matches:
 
-        try:
-
-            data = json.loads(
-                item
-            )
-
-            name = (
-                data
-                .get("item", {})
-                .get("name")
-            )
-
-            if name:
-                models.append(
-                    {
-                        "rank":
-                            len(models)+1,
-
-                        "id":
-                            name,
-
-                        "name":
-                            name,
-
-                        "provider":
-                            "",
-
-                        "score":
-                            0,
-
-                        "detail_url":
-                            None,
-                    }
-                )
-
-        except Exception:
-            continue
+        slug = item
 
 
-    return models
+        result.append(
+
+            {
+
+                "provider":
+                    "",
+
+
+                "score":
+                    0,
+
+
+                "detail_url":
+                    "",
+
+
+                "slug":
+                    slug,
+
+            }
+
+        )
+
+
+    return result
 
 
 
-# -------------------------------------------------
-# public api
-# -------------------------------------------------
+# ============================================================
+# Public API
+# ============================================================
+
 
 def crawl_models(
     top_k: int = 50,
-    url: str = MODELS_URL
+    url: str = MODELS_URL,
 ) -> List[Dict]:
+    """
+    Crawl model list.
+
+    Return:
+
+    List[
+        {
+            provider,
+            score,
+            detail_url,
+            slug
+        }
+    ]
 
     """
-    Crawl freellm models.
-
-    Args:
-        top_k:
-            number of models
-
-    Returns:
-        list of models
-    """
-
-
-    logger.info(
-        "crawl models from %s",
-        url
-    )
-
 
     html = fetch_html(
         url
@@ -430,8 +435,8 @@ def crawl_models(
     if not models:
 
         logger.warning(
-            "model-row parser failed, "
-            "try json fallback"
+            "html parser empty, "
+            "try json fallback",
         )
 
 
@@ -440,27 +445,11 @@ def crawl_models(
         )
 
 
+
     logger.info(
-        "raw extracted models: %s",
-        len(models)
+        "crawler extracted: %s",
+        len(models),
     )
 
 
-    if models:
-
-        logger.info(
-            "first model: %s",
-            models[0]
-        )
-
-
-    result = models[:top_k]
-
-
-    logger.info(
-        "crawler result: %s",
-        len(result)
-    )
-
-
-    return result
+    return models[:top_k]

@@ -1,364 +1,176 @@
 """
 models.py
 
-Core data models for LiteLLM Config Generator V2.
+Unified data model definition.
+
+All modules MUST use ModelInfo.
 
 Architecture:
 
 crawler.py
     |
     v
-RawModel
-    |
-    v
 detail_parser.py
     |
     v
-ProviderModel
+ModelInfo
     |
     v
 config_builder.py
-    |
-    v
-LiteLLM config.yaml
+
+
+禁止:
+- name
+- display_name
+- title
+
+LiteLLM model name MUST use model_id.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, asdict
-from typing import List, Optional, Dict, Any
+from dataclasses import dataclass, field
+from typing import List, Optional
 
-
-# ============================================================
-# Raw model from freellm model list page
-# ============================================================
 
 @dataclass
-class RawModel:
+class ModelInfo:
     """
-    Model information collected from models listing page.
+    Unified model information.
 
-    This object is temporary.
-    It should NOT directly generate LiteLLM config.
+    This is the only model structure used
+    inside the project.
     """
 
-    name: str
+    # -----------------------------
+    # Provider information
+    # -----------------------------
 
     provider: str
 
-    score: float = 0
 
-    detail_url: Optional[str] = None
-
-    context: Optional[str] = None
-
-    modality: List[str] = field(default_factory=list)
-
-    verified: bool = False
-
-    description: Optional[str] = None
-
-    metadata: Dict[str, Any] = field(default_factory=dict)
-
-
-# ============================================================
-# Provider model after detail page parsing
-# ============================================================
-
-@dataclass
-class ProviderModel:
-    """
-    Normalized provider model.
-
-    This is the single source of truth
-    for LiteLLM configuration generation.
-    """
-
-    # ----------------------------
-    # Basic information
-    # ----------------------------
-
-    provider: str
+    # -----------------------------
+    # Real LiteLLM model id
+    #
+    # MUST come from detail page:
+    # API Details -> Model ID
+    # -----------------------------
 
     model_id: str
 
-    display_name: str
 
-
-    # ----------------------------
-    # API information
-    # ----------------------------
+    # -----------------------------
+    # Provider endpoint
+    # -----------------------------
 
     api_base: Optional[str] = None
 
-    api_format: Optional[str] = None
+
+    # -----------------------------
+    # Ranking score from crawler
+    # -----------------------------
+
+    score: float = 0.0
 
 
-    # ----------------------------
-    # Ranking
-    # ----------------------------
+    # -----------------------------
+    # Context window
+    #
+    # Example:
+    # "128K"
+    # -----------------------------
 
-    score: float = 0
+    context: Optional[str] = None
 
 
-    # ----------------------------
+    # -----------------------------
     # Model capability
-    # ----------------------------
+    #
+    # Example:
+    # [
+    #   "chat",
+    #   "reasoning",
+    #   "coding"
+    # ]
+    # -----------------------------
 
-    capabilities: List[str] = field(
+    capability: List[str] = field(
         default_factory=list
     )
 
-    input_modalities: List[str] = field(
+
+    # -----------------------------
+    # Input/output modality
+    #
+    # Example:
+    # [
+    #   "text",
+    #   "image"
+    # ]
+    # -----------------------------
+
+    modality: List[str] = field(
         default_factory=list
     )
 
-    output_modalities: List[str] = field(
-        default_factory=list
-    )
+
+    # -----------------------------
+    # FreeLLM detail page
+    # -----------------------------
+
+    detail_url: str = ""
 
 
-    # ----------------------------
-    # Context
-    # ----------------------------
-
-    context_tokens: Optional[int] = None
-
-    max_output_tokens: Optional[int] = None
-
-
-    # ----------------------------
-    # Usage classification
-    # ----------------------------
+    # -----------------------------
+    # Recommended usage
+    #
+    # Example:
+    # [
+    #   "coding",
+    #   "reasoning"
+    # ]
+    # -----------------------------
 
     best_for: List[str] = field(
         default_factory=list
     )
 
 
-    # ----------------------------
-    # Provider limitation
-    # ----------------------------
-
-    rate_limit: Optional[str] = None
-
-
-    # ----------------------------
-    # Status
-    # ----------------------------
-
-    verified: bool = False
-
-    online: bool = False
-
-
-    # ----------------------------
-    # Source
-    # ----------------------------
-
-    detail_url: Optional[str] = None
-
-
-    # ----------------------------
-    # Extra metadata
-    # ----------------------------
-
-    metadata: Dict[str, Any] = field(
-        default_factory=dict
-    )
-
-
-    # ========================================================
-    # helper methods
-    # ========================================================
-
-    def supports(self, capability: str) -> bool:
+    def is_valid(self) -> bool:
         """
-        Check capability support.
+        Validate model.
 
-        Example:
-
-            model.supports("vision")
+        A valid model MUST have:
+        - provider
+        - model_id
         """
-
-        capability = capability.lower()
-
-        return any(
-            capability in item.lower()
-            for item in self.capabilities
-        )
-
-
-    def is_chat_model(self) -> bool:
-        """
-        Whether model can be used for chat.
-        """
-
-        chat_keywords = {
-            "chat",
-            "text",
-            "reasoning",
-            "code"
-        }
-
-        values = set(
-            x.lower()
-            for x in self.best_for
-        )
 
         return bool(
-            values.intersection(chat_keywords)
+            self.provider
+            and self.model_id
         )
 
 
-    def is_vision_model(self) -> bool:
+    def normalized_provider(self) -> str:
         """
-        Whether model supports vision.
+        Normalized provider name.
         """
 
-        values = (
-            self.input_modalities
-            +
-            self.capabilities
-        )
-
-        return any(
-            "vision" in x.lower()
-            or "image" in x.lower()
-            for x in values
+        return (
+            self.provider
+            .strip()
+            .lower()
         )
 
 
-    def is_embedding_model(self) -> bool:
+    def metadata(self) -> dict:
         """
-        Whether model is embedding model.
+        Metadata used by LiteLLM config.
         """
-
-        values = (
-            self.best_for
-            +
-            self.capabilities
-        )
-
-        return any(
-            "embedding" in x.lower()
-            for x in values
-        )
-
-
-    def model_type(self) -> str:
-        """
-        Return logical model category.
-
-        Used by config_builder.
-        """
-
-        if self.is_embedding_model():
-            return "embedding"
-
-        if self.is_vision_model():
-            return "vision"
-
-        if self.is_chat_model():
-            return "chat"
-
-        return "unknown"
-
-
-    def to_dict(self) -> Dict[str, Any]:
-        """
-        Convert to dictionary.
-        """
-
-        return asdict(self)
-
-
-
-# ============================================================
-# LiteLLM configuration model
-# ============================================================
-
-@dataclass
-class LiteLLMModel:
-    """
-    Internal representation of one LiteLLM model entry.
-    """
-
-    model_name: str
-
-    litellm_model: str
-
-    api_base: Optional[str]
-
-    api_key_env: Optional[str]
-
-    metadata: Dict[str, Any] = field(
-        default_factory=dict
-    )
-
-
-    def to_yaml_dict(self) -> Dict[str, Any]:
-        """
-        Convert to LiteLLM yaml structure.
-        """
-
-        result = {
-
-            "model_name": self.model_name,
-
-            "litellm_params": {
-
-                "model": self.litellm_model
-
-            }
-
-        }
-
-
-        if self.api_base:
-            result["litellm_params"][
-                "api_base"
-            ] = self.api_base
-
-
-        if self.api_key_env:
-            result["litellm_params"][
-                "api_key"
-            ] = (
-                f"os.environ/{self.api_key_env}"
-            )
-
-
-        if self.metadata:
-            result["metadata"] = self.metadata
-
-
-        return result
-
-
-
-# ============================================================
-# Config container
-# ============================================================
-
-@dataclass
-class GeneratedConfig:
-
-    models: List[LiteLLMModel] = field(
-        default_factory=list
-    )
-
-
-    def to_yaml_dict(self) -> Dict[str, Any]:
 
         return {
-
-            "model_list": [
-
-                item.to_yaml_dict()
-
-                for item in self.models
-
-            ]
-
+            "provider": self.provider,
+            "score": self.score,
+            "capability": self.capability,
+            "context": self.context,
         }
