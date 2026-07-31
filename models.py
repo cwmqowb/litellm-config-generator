@@ -1,11 +1,11 @@
 """
 models.py
 
-Unified data model definition.
+Unified model data structure.
 
 All modules MUST use ModelInfo.
 
-Architecture:
+Pipeline:
 
 crawler.py
     |
@@ -19,18 +19,39 @@ ModelInfo
 config_builder.py
 
 
-禁止:
-- name
-- display_name
-- title
+Important:
 
-LiteLLM model name MUST use model_id.
+LiteLLM model name MUST always use:
+
+    model_id
+
+
+model_id source:
+
+    detail.html
+        |
+        v
+    API Details
+        |
+        v
+    Model ID
+
+
+Never use:
+
+- name
+- title
+- display_name
+
+as LiteLLM model identifier.
 """
 
 from __future__ import annotations
 
+
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
+
 
 
 @dataclass
@@ -38,111 +59,128 @@ class ModelInfo:
     """
     Unified model information.
 
-    This is the only model structure used
-    inside the project.
+    This is the only model structure
+    passed through the project.
     """
 
-    # -----------------------------
-    # Provider information
-    # -----------------------------
+
+    # Provider name
 
     provider: str
 
 
-    # -----------------------------
-    # Real LiteLLM model id
-    #
-    # MUST come from detail page:
-    # API Details -> Model ID
-    # -----------------------------
+
+    # Real provider model id
+
+    # Example:
+    # z-ai/glm-5.2
 
     model_id: str
 
 
-    # -----------------------------
-    # Provider endpoint
-    # -----------------------------
+
+    # Provider API endpoint
 
     api_base: Optional[str] = None
 
 
-    # -----------------------------
-    # Ranking score from crawler
-    # -----------------------------
+
+    # Ranking score
+
+    # Note:
+    # freellm models.html currently
+    # does not expose score.
+    #
+    # Default 0.
 
     score: float = 0.0
 
 
-    # -----------------------------
+
     # Context window
-    #
+
     # Example:
-    # "128K"
-    # -----------------------------
+    # 1.0M
 
     context: Optional[str] = None
 
 
-    # -----------------------------
-    # Model capability
-    #
+
+    # Model capabilities
+
     # Example:
     # [
-    #   "chat",
     #   "reasoning",
-    #   "coding"
+    #   "tool calling"
     # ]
-    # -----------------------------
 
     capability: List[str] = field(
         default_factory=list
     )
 
 
-    # -----------------------------
-    # Input/output modality
-    #
+
+    # Input / output modality
+
     # Example:
     # [
     #   "text",
     #   "image"
     # ]
-    # -----------------------------
 
     modality: List[str] = field(
         default_factory=list
     )
 
 
-    # -----------------------------
-    # FreeLLM detail page
-    # -----------------------------
+
+    # Detail page url
 
     detail_url: str = ""
 
 
-    # -----------------------------
-    # Recommended usage
-    #
-    # Example:
-    # [
-    #   "coding",
-    #   "reasoning"
-    # ]
-    # -----------------------------
+
+    # Recommended scenarios
 
     best_for: List[str] = field(
         default_factory=list
     )
 
 
+
+    # Additional fields collected
+    # from html pages.
+    #
+    # Examples:
+    #
+    # {
+    #   "display_name":
+    #       "z-ai/glm-5.2",
+    #
+    #   "released":
+    #       "2026-01-15",
+    #
+    #   "status":
+    #       "active",
+    #
+    #   "max_output":
+    #       "8192"
+    # }
+
+    extra: Dict[str, Any] = field(
+        default_factory=dict
+    )
+
+
+
     def is_valid(self) -> bool:
         """
         Validate model.
 
-        A valid model MUST have:
-        - provider
-        - model_id
+        Required:
+
+        provider
+        model_id
         """
 
         return bool(
@@ -151,26 +189,50 @@ class ModelInfo:
         )
 
 
-    def normalized_provider(self) -> str:
-        """
-        Normalized provider name.
-        """
 
-        return (
-            self.provider
-            .strip()
-            .lower()
-        )
-
-
-    def metadata(self) -> dict:
+    def metadata(self) -> Dict[str, Any]:
         """
-        Metadata used by LiteLLM config.
+        Metadata for LiteLLM config.
         """
 
         return {
-            "provider": self.provider,
-            "score": self.score,
-            "capability": self.capability,
-            "context": self.context,
+
+            "provider":
+                self.provider,
+
+
+            "score":
+                self.score,
+
+
+            "capability":
+                self.capability,
+
+
+            "context":
+                self.context,
+
+
+            "best_for":
+                self.best_for,
+
+
+            "extra":
+                self.extra,
+
         }
+
+
+
+    def add_extra(
+        self,
+        key: str,
+        value: Any,
+    ) -> None:
+        """
+        Add extra metadata.
+        """
+
+        if value is not None:
+
+            self.extra[key] = value

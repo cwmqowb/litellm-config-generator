@@ -6,656 +6,841 @@ FreeLLM model detail page parser.
 
 Responsibility:
 
-Access model detail page and parse:
-
-API Details:
-
-    - Base URL
-    - Model ID
+Parse model detail.html.
 
 
-Technical Details:
+Input:
 
-    - Context window
-    - Input
-    - Output
-    - Capabilities
+crawler.py output:
+
+{
+    provider,
+    detail_url,
+    slug,
+    display_name,
+    extra
+}
 
 
-Best For:
+Output:
 
-    - Recommended usage
+ModelInfo
 
 
-IMPORTANT:
+Important:
 
 model_id MUST come from:
 
-    Detail Page
-        |
-        v
-    API Details
-        |
-        v
-    Model ID
+API Details -> Model ID
 
 
-Never trust crawler output.
+Never use:
+
+- display_name
+- slug
+
+as LiteLLM model name.
+
+
 """
 
 from __future__ import annotations
 
 
 import logging
-from typing import Dict, Optional
+from typing import Any, Dict, List, Optional
 
 
 import requests
-
 from bs4 import BeautifulSoup
 
 
 from models import ModelInfo
 
 
+from providers import normalize_provider_name
+
+
+
 logger = logging.getLogger(__name__)
 
 
-DEFAULT_TIMEOUT = 20
+
+HEADERS = {
+
+    "User-Agent":
+
+        (
+            "Mozilla/5.0 "
+            "(Windows NT 10.0; Win64; x64) "
+            "Chrome/120 Safari/537.36"
+        )
+
+}
 
 
 
 # ============================================================
-# Parser
+# HTTP
 # ============================================================
 
 
-class DetailParser:
+def fetch_detail_html(
+    url: str,
+) -> str:
     """
-    Parse FreeLLM detail page.
+    Fetch model detail page.
     """
 
 
-    def __init__(
-        self,
-        timeout: int = DEFAULT_TIMEOUT,
-        session: Optional[requests.Session] = None,
+    response = requests.get(
+
+        url,
+
+        headers=HEADERS,
+
+        timeout=30,
+
+    )
+
+
+    response.raise_for_status()
+
+
+    return response.text
+
+
+
+# ============================================================
+# Helpers
+# ============================================================
+
+
+def clean_text(
+    value: Optional[str],
+) -> str:
+    """
+    Normalize text.
+    """
+
+    if not value:
+
+        return ""
+
+    return (
+
+        value
+
+        .strip()
+
+        .replace(
+
+            "\n",
+
+            " "
+
+        )
+
+    )
+
+
+
+def split_values(
+    value: str,
+) -> List[str]:
+    """
+    Convert:
+
+    "text, reasoning"
+
+    into:
+
+    [
+        "text",
+        "reasoning"
+    ]
+
+    """
+
+    if not value:
+
+        return []
+
+
+    return [
+
+        item.strip()
+
+        for item in value.split(",")
+
+        if item.strip()
+
+    ]
+
+
+
+# ============================================================
+# API Details
+# ============================================================
+
+
+def parse_api_details(
+    soup: BeautifulSoup,
+) -> Dict[str, str]:
+    """
+    Parse:
+
+    <section class="api-details">
+
+        <div class="api-detail">
+
+            <span>Base URL</span>
+
+            <div class="api-detail-value">
+
+                <code>...</code>
+
+            </div>
+
+        </div>
+
+
+    </section>
+
+
+    Extract:
+
+    Base URL
+
+    Model ID
+
+    """
+
+    result = {}
+
+
+    section = soup.select_one(
+
+        ".api-details"
+
+    )
+
+
+    if not section:
+
+        return result
+
+
+
+    for item in section.select(
+
+        ".api-detail"
+
     ):
 
-        self.timeout = timeout
 
+        label = item.find(
 
-        self.session = (
-            session
-            or requests.Session()
-        )
-
-
-        self.session.headers.update(
-
-            {
-
-                "User-Agent":
-
-                    (
-                        "Mozilla/5.0 "
-                        "(Windows NT 10.0; Win64; x64) "
-                        "Chrome/120 Safari/537.36"
-                    )
-
-            }
+            "span"
 
         )
 
 
+        if not label:
 
-    # --------------------------------------------------------
-    # Public API
-    # --------------------------------------------------------
-
-
-    def parse(
-        self,
-        raw_model: Dict,
-    ) -> Optional[ModelInfo]:
-        """
-        Convert crawler result into ModelInfo.
-
-        Input:
-
-        {
-            provider,
-            score,
-            detail_url,
-            slug
-        }
+            continue
 
 
-        Output:
 
-        ModelInfo
-        """
+        key = clean_text(
 
+            label.get_text()
 
-        detail_url = (
-            raw_model.get(
-                "detail_url"
-            )
         )
 
 
-        if not detail_url:
+        value = ""
 
-            logger.warning(
-                "missing detail url: %s",
-                raw_model,
+
+
+        code = item.select_one(
+
+            "code"
+
+        )
+
+
+        if code:
+
+            value = clean_text(
+
+                code.get_text()
+
             )
 
-            return None
 
 
-
-        html = self._fetch(
-            detail_url
-        )
+        else:
 
 
-        if not html:
+            strong = item.find(
 
-            return None
+                "strong"
 
-
-
-        soup = BeautifulSoup(
-            html,
-            "html.parser",
-        )
-
-
-
-        data = {}
-
-
-        data.update(
-
-            self._parse_api_details(
-                soup
             )
 
-        )
 
+            if strong:
 
-        data.update(
+                value = clean_text(
 
-            self._parse_technical_details(
-                soup
-            )
+                    strong.get_text()
 
-        )
-
-
-        data.update(
-
-            self._parse_best_for(
-                soup
-            )
-
-        )
-
-
-
-        model_id = (
-            data.get(
-                "model_id"
-            )
-        )
-
-
-        if not model_id:
-
-            logger.warning(
-                "detail page has no model id: %s",
-                detail_url,
-            )
-
-            return None
-
-
-
-        return ModelInfo(
-
-            provider=
-                raw_model.get(
-                    "provider",
-                    "",
-                ),
-
-
-            model_id=model_id,
-
-
-            api_base=
-                data.get(
-                    "api_base"
-                ),
-
-
-            score=float(
-                raw_model.get(
-                    "score",
-                    0,
                 )
-                or 0
+
+
+
+        if key and value:
+
+
+            result[key] = value
+
+
+
+    return result
+
+
+
+# ============================================================
+# Technical Details
+# ============================================================
+
+
+def parse_technical_details(
+    soup: BeautifulSoup,
+) -> Dict[str, str]:
+    """
+    Parse:
+
+    .technical-details-grid
+
+
+    Example:
+
+    Context window
+    1.0M
+
+
+    Input
+    text, reasoning
+
+
+    Capabilities
+    reasoning, tool calling
+
+
+    """
+
+    result = {}
+
+
+    grid = soup.select_one(
+
+        ".technical-details-grid"
+
+    )
+
+
+    if not grid:
+
+        return result
+
+
+
+    for item in grid.find_all(
+
+        "div",
+
+        recursive=False,
+
+    ):
+
+
+        label = item.find(
+
+            "span"
+
+        )
+
+
+        value = item.find(
+
+            "strong"
+
+        )
+
+
+        if not label or not value:
+
+            continue
+
+
+
+        key = clean_text(
+
+            label.get_text()
+
+        )
+
+
+        val = clean_text(
+
+            value.get_text()
+
+        )
+
+
+        if key:
+
+            result[key] = val
+
+
+
+    return result
+
+
+
+# ============================================================
+# Best For
+# ============================================================
+
+
+def parse_best_for(
+    soup: BeautifulSoup,
+) -> List[str]:
+    """
+    Parse:
+
+    .best-for-list
+
+    """
+
+    result = []
+
+
+    for item in soup.select(
+
+        ".best-for-list li"
+
+    ):
+
+
+        value = clean_text(
+
+            item.get_text()
+
+        )
+
+
+        if value:
+
+            result.append(
+
+                value
+
+            )
+
+
+    return result
+
+
+
+# ============================================================
+# Recommendation / Benchmark extra
+# ============================================================
+
+
+def parse_extra(
+    soup: BeautifulSoup,
+) -> Dict[str, Any]:
+    """
+    Preserve useful fields.
+
+    Not used for LiteLLM model name.
+
+    """
+
+    extra = {}
+
+
+
+    benchmark = []
+
+
+    for item in soup.select(
+
+        ".benchmark-row"
+
+    ):
+
+
+        label = item.find(
+
+            "strong"
+
+        )
+
+
+        value = item.select_one(
+
+            ".benchmark-value"
+
+        )
+
+
+        if label and value:
+
+
+            benchmark.append(
+
+                {
+
+                    "name":
+
+                        clean_text(
+
+                            label.get_text()
+
+                        ),
+
+
+                    "value":
+
+                        clean_text(
+
+                            value.get_text()
+
+                        ),
+
+                }
+
+            )
+
+
+
+    if benchmark:
+
+        extra["benchmark"] = benchmark
+
+
+
+    return extra
+
+
+
+# ============================================================
+# Public parser
+# ============================================================
+
+
+def parse_detail_page(
+    model: Dict[str, Any],
+) -> Optional[ModelInfo]:
+    """
+    Parse one crawler model.
+
+    """
+
+    detail_url = model.get(
+
+        "detail_url"
+
+    )
+
+
+    if not detail_url:
+
+        return None
+
+
+
+    html = fetch_detail_html(
+
+        detail_url
+
+    )
+
+
+    soup = BeautifulSoup(
+
+        html,
+
+        "html.parser"
+
+    )
+
+
+    api_details = parse_api_details(
+
+        soup
+
+    )
+
+
+    technical = parse_technical_details(
+
+        soup
+
+    )
+
+
+    best_for = parse_best_for(
+
+        soup
+
+    )
+
+
+    model_id = api_details.get(
+
+        "Model ID"
+
+    )
+
+
+
+    if not model_id:
+
+
+        logger.warning(
+
+            "missing model id: %s",
+
+            detail_url,
+
+        )
+
+
+        return None
+
+
+
+    provider = normalize_provider_name(
+
+        model.get(
+
+            "provider",
+
+            ""
+
+        )
+
+    )
+
+
+
+    api_base = api_details.get(
+
+        "Base URL"
+
+    )
+
+
+
+    context = technical.get(
+
+        "Context window"
+
+    )
+
+
+
+    capabilities = split_values(
+
+        technical.get(
+
+            "Capabilities",
+
+            ""
+
+        )
+
+    )
+
+
+
+    modality = split_values(
+
+        technical.get(
+
+            "Input",
+
+            ""
+
+        )
+
+    )
+
+
+
+    extra = {}
+
+
+
+    if model.get(
+
+        "extra"
+
+    ):
+
+        extra.update(
+
+            model["extra"]
+
+        )
+
+
+
+    extra.update(
+
+        parse_extra(
+
+            soup
+
+        )
+
+    )
+
+
+
+    return ModelInfo(
+
+        provider=provider,
+
+
+        model_id=model_id,
+
+
+        api_base=api_base,
+
+
+        score=float(
+
+            model.get(
+
+                "score",
+
+                0.0
+
+            )
+
+            or 0.0
+
+        ),
+
+
+        context=context,
+
+
+        capability=capabilities,
+
+
+        modality=modality,
+
+
+        detail_url=detail_url,
+
+
+        best_for=best_for,
+
+
+        extra=extra,
+
+    )
+
+
+
+# ============================================================
+# Batch parser
+# ============================================================
+
+
+def parse_details(
+    models: List[Dict[str, Any]],
+) -> List[ModelInfo]:
+    """
+    Parse crawler result list.
+    """
+
+    result = []
+
+
+    for index, model in enumerate(
+
+        models,
+
+        start=1,
+
+    ):
+
+
+        logger.info(
+
+            "parse detail %s/%s: %s",
+
+            index,
+
+            len(models),
+
+            model.get(
+
+                "detail_url"
+
             ),
 
-
-            context=
-                data.get(
-                    "context"
-                ),
-
-
-            capability=
-                data.get(
-                    "capability",
-                    [],
-                ),
-
-
-            modality=
-                data.get(
-                    "modality",
-                    [],
-                ),
-
-
-            detail_url=
-                detail_url,
-
-
-            best_for=
-                data.get(
-                    "best_for",
-                    [],
-                ),
-
         )
 
 
-
-    # --------------------------------------------------------
-    # HTTP
-    # --------------------------------------------------------
-
-
-    def _fetch(
-        self,
-        url: str,
-    ) -> Optional[str]:
 
         try:
 
-            response = (
-                self.session
-                .get(
-                    url,
-                    timeout=self.timeout,
-                )
+
+            parsed = parse_detail_page(
+
+                model
+
             )
 
 
-            response.raise_for_status()
+            if parsed:
 
+                result.append(
 
-            return response.text
+                    parsed
 
+                )
 
 
         except Exception as exc:
 
+
             logger.warning(
 
-                "detail fetch failed %s: %s",
-
-                url,
+                "detail parse failed: %s",
 
                 exc,
 
             )
 
 
-            return None
 
+    logger.info(
 
+        "detail parsed models: %s",
 
-    # --------------------------------------------------------
-    # API Details
-    # --------------------------------------------------------
+        len(result),
 
-
-    def _parse_api_details(
-        self,
-        soup: BeautifulSoup,
-    ) -> Dict:
-
-        result = {}
-
-
-        section = soup.find(
-
-            "section",
-
-            class_="api-details",
-
-        )
-
-
-        if not section:
-
-            return result
-
-
-
-        base_url = self._find_code_value(
-
-            section,
-
-            "Base URL",
-
-        )
-
-
-        if base_url:
-
-            result["api_base"] = base_url
-
-
-
-        model_id = self._find_code_value(
-
-            section,
-
-            "Model ID",
-
-        )
-
-
-        if model_id:
-
-            result["model_id"] = model_id
-
-
-
-        return result
-
-
-
-    def _find_code_value(
-        self,
-        container,
-        label: str,
-    ) -> Optional[str]:
-        """
-        Find:
-
-        <span>
-            Model ID
-        </span>
-
-        <code>
-            z-ai/glm-5.2
-        </code>
-        """
-
-
-        span = container.find(
-
-            "span",
-
-            string=lambda x:
-
-                x and label in x,
-
-        )
-
-
-        if not span:
-
-            return None
-
-
-
-        parent = span.parent
-
-
-        code = parent.find(
-            "code"
-        )
-
-
-        if not code:
-
-            return None
-
-
-
-        return (
-            code
-            .get_text(
-                strip=True
-            )
-        )
-
-
-
-    # --------------------------------------------------------
-    # Technical Details
-    # --------------------------------------------------------
-
-
-    def _parse_technical_details(
-        self,
-        soup: BeautifulSoup,
-    ) -> Dict:
-
-        result = {}
-
-
-        section = soup.find(
-
-            "section",
-
-            class_="technical-details-card",
-
-        )
-
-
-        if not section:
-
-            return result
-
-
-
-        grid = section.find(
-
-            class_="technical-details-grid"
-
-        )
-
-
-        if not grid:
-
-            return result
-
-
-
-        values = {}
-
-
-
-        for item in grid.find_all(
-            recursive=False
-        ):
-
-
-            key = item.find(
-                "span"
-            )
-
-
-            value = item.find(
-                "strong"
-            )
-
-
-            if key and value:
-
-                values[
-
-                    key.get_text(
-                        strip=True
-                    )
-
-                ] = (
-
-                    value
-                    .get_text(
-                        strip=True
-                    )
-
-                )
-
-
-
-        if "Context window" in values:
-
-            result["context"] = (
-
-                values[
-                    "Context window"
-                ]
-
-            )
-
-
-
-        if "Capabilities" in values:
-
-            result["capability"] = [
-
-                x.strip()
-
-                for x in
-
-                values[
-                    "Capabilities"
-                ]
-                .split(",")
-
-                if x.strip()
-
-            ]
-
-
-
-        if "Input" in values:
-
-            result["modality"] = [
-
-                x.strip()
-
-                for x in
-
-                values[
-                    "Input"
-                ]
-                .split(",")
-
-                if x.strip()
-
-            ]
-
-
-
-        return result
-
-
-
-    # --------------------------------------------------------
-    # Best For
-    # --------------------------------------------------------
-
-
-    def _parse_best_for(
-        self,
-        soup: BeautifulSoup,
-    ) -> Dict:
-
-        result = {}
-
-
-        section = soup.find(
-
-            class_="best-for-card"
-
-        )
-
-
-        if not section:
-
-            return result
-
-
-
-        items = []
-
-
-        for li in section.find_all(
-            "li"
-        ):
-
-
-            text = (
-
-                li.get_text(
-                    strip=True
-                )
-
-            )
-
-
-            if text:
-
-                items.append(
-                    text.lower()
-                )
-
-
-
-        if items:
-
-            result["best_for"] = items
-
-
-
-        return result
-
-
-
-# ============================================================
-# Compatibility helper
-# ============================================================
-
-
-def parse_model_detail(
-    raw_model: Dict,
-) -> Optional[ModelInfo]:
-    """
-    Public helper.
-    """
-
-    parser = DetailParser()
-
-    return parser.parse(
-        raw_model
     )
+
+
+    return result

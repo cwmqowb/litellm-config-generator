@@ -1,44 +1,59 @@
 """
 main.py
 
-LiteLLM Config Generator
-
+Application entry.
 
 Pipeline:
 
 
+models.html
+        |
+        v
 crawler.py
 
-    |
-    v
+        |
+        |
+        v
+
+raw model list
+
+
+        |
+        v
 
 detail_parser.py
 
-    |
-    v
+        |
+        v
 
 ModelInfo
 
-    |
-    v
+
+        |
+        v
+
+normalizer.py
+
+
+        |
+        v
 
 config_builder.py
 
-    |
-    v
+
+        |
+        v
 
 config.generated.yaml
 
 
 
-Responsibilities:
-
-- CLI
-- Pipeline orchestration
-- Save generated config
+Usage:
 
 
-No model parsing logic here.
+python main.py --top 100
+
+
 """
 
 from __future__ import annotations
@@ -49,6 +64,7 @@ import logging
 from typing import List
 
 
+
 from crawler import crawl_models
 
 
@@ -57,75 +73,47 @@ from detail_parser import (
 )
 
 
-from models import (
-    ModelInfo,
+from normalizer import (
+    normalize_models,
 )
 
 
 from config_builder import (
-    ConfigBuilder,
+    build_config,
     save_config,
 )
 
 
-from providers import (
-    normalize_provider_name,
-)
+
+from models import ModelInfo
 
 
 
-logging.basicConfig(
-
-    level=logging.INFO,
-
-    format=
-
-        "%(levelname)s %(message)s",
-
-)
-
-
-logger = logging.getLogger(
-    __name__
-)
+logger = logging.getLogger(__name__)
 
 
 
 # ============================================================
-# Supported providers
+# Logging
 # ============================================================
 
 
-SUPPORTED_PROVIDERS = {
+def setup_logging():
 
+    logging.basicConfig(
 
-    "nvidia",
+        level=logging.INFO,
 
+        format=
 
-    "openrouter",
+            "%(levelname)s %(message)s",
 
-
-    "github",
-
-
-    "modelscope",
-
-
-    "sambanova",
-
-
-    "agnes",
-
-
-    "kilo",
-
-
-}
+    )
 
 
 
 # ============================================================
-# CLI
+# Arguments
 # ============================================================
 
 
@@ -135,7 +123,7 @@ def parse_args():
 
         description=
 
-            "Generate LiteLLM config"
+            "Generate LiteLLM config from FreeLLM models"
 
     )
 
@@ -150,7 +138,7 @@ def parse_args():
 
         help=
 
-            "number of models",
+            "number of models to crawl",
 
     )
 
@@ -163,6 +151,10 @@ def parse_args():
 
             "config.generated.yaml",
 
+        help=
+
+            "output yaml file",
+
     )
 
 
@@ -171,56 +163,29 @@ def parse_args():
 
 
 # ============================================================
-# Provider filter
+# Detail processing
 # ============================================================
 
 
-def is_supported_provider(
-    provider: str,
-) -> bool:
-
-
-    normalized = (
-
-        normalize_provider_name(
-
-            provider
-
-        )
-
-    )
-
-
-    return (
-
-        normalized
-
-        in
-
-        SUPPORTED_PROVIDERS
-
-    )
-
-
-
-# ============================================================
-# Pipeline
-# ============================================================
-
-
-def build_models(
+def parse_details(
     raw_models: List[dict],
 ) -> List[ModelInfo]:
     """
-    crawler output
+    Parse detail pages.
 
-        |
+    crawler output:
 
-        v
+        provider
+        detail_url
+        slug
+        extra
 
-    ModelInfo list
 
+    detail_parser output:
+
+        ModelInfo
     """
+
 
 
     parser = DetailParser()
@@ -231,40 +196,30 @@ def build_models(
 
 
 
-    for raw in raw_models:
+    for index, raw in enumerate(
+
+        raw_models,
+
+        start=1,
+
+    ):
 
 
-        provider = (
+        logger.info(
+
+            "parse detail %s/%s: %s",
+
+            index,
+
+            len(raw_models),
 
             raw.get(
 
-                "provider",
+                "detail_url"
 
-                ""
-
-            )
+            ),
 
         )
-
-
-
-        if not is_supported_provider(
-
-            provider
-
-        ):
-
-
-            logger.info(
-
-                "skip provider: %s",
-
-                provider,
-
-            )
-
-
-            continue
 
 
 
@@ -278,42 +233,25 @@ def build_models(
             )
 
 
-            if not model:
+
+            if model:
 
 
-                continue
+                result.append(
+
+                    model
+
+                )
 
 
-
-            result.append(
-
-                model
-
-            )
+        except Exception as exc:
 
 
-            logger.info(
+            logger.warning(
 
-                "%s | %s | %.2f",
+                "detail parse failed: %s",
 
-                model.provider,
-
-                model.model_id,
-
-                model.score,
-
-            )
-
-
-
-        except Exception:
-
-
-            logger.exception(
-
-                "parse detail failed: %s",
-
-                raw,
+                exc,
 
             )
 
@@ -324,35 +262,38 @@ def build_models(
 
 
 # ============================================================
-# Main
+# Main pipeline
 # ============================================================
 
 
-def main():
+def generate_config(
+    top: int,
+    output: str,
+):
+    """
+    Complete generation flow.
+    """
 
-    args = parse_args()
 
 
+    #
+    # Step 1
+    #
+    # models.html
+    #
 
     logger.info(
 
         "crawl top %s models",
 
-        args.top,
+        top,
 
     )
 
 
-
-    # ------------------------------------
-    # Step 1
-    # crawler
-    # ------------------------------------
-
-
     raw_models = crawl_models(
 
-        top_k=args.top
+        top_k=top
 
     )
 
@@ -368,13 +309,24 @@ def main():
 
 
 
-    # ------------------------------------
+    if not raw_models:
+
+
+        raise RuntimeError(
+
+            "No models extracted from models.html"
+
+        )
+
+
+
+    #
     # Step 2
-    # detail parser
-    # ------------------------------------
+    #
+    # detail.html
+    #
 
-
-    models = build_models(
+    detail_models = parse_details(
 
         raw_models
 
@@ -384,15 +336,45 @@ def main():
 
     logger.info(
 
-        "valid ModelInfo: %s",
+        "detail parsed models: %s",
 
-        len(models),
+        len(detail_models),
 
     )
 
 
 
-    if not models:
+    #
+    # Step 3
+    #
+    # normalize ModelInfo
+    #
+
+    normalized = normalize_models(
+
+        [
+
+            model.__dict__
+
+            for model in detail_models
+
+        ]
+
+    )
+
+
+
+    logger.info(
+
+        "valid ModelInfo: %s",
+
+        len(normalized),
+
+    )
+
+
+
+    if not normalized:
 
 
         raise RuntimeError(
@@ -403,34 +385,31 @@ def main():
 
 
 
-    # ------------------------------------
-    # Step 3
-    # config builder
-    # ------------------------------------
+    #
+    # Step 4
+    #
+    # LiteLLM config
+    #
 
+    config = build_config(
 
-    builder = ConfigBuilder(
-
-        models
+        normalized
 
     )
 
 
-    config = builder.build()
 
-
-
-    # ------------------------------------
-    # Step 4
+    #
+    # Step 5
+    #
     # save yaml
-    # ------------------------------------
-
+    #
 
     save_config(
 
         config,
 
-        args.output,
+        output,
 
     )
 
@@ -438,11 +417,33 @@ def main():
 
     logger.info(
 
-        "DONE"
+        "config generated successfully"
 
     )
 
 
+
+# ============================================================
+# Entry
+# ============================================================
+
+
+def main():
+
+    setup_logging()
+
+
+    args = parse_args()
+
+
+
+    generate_config(
+
+        top=args.top,
+
+        output=args.output,
+
+    )
 
 
 

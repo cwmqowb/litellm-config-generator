@@ -1,43 +1,47 @@
 """
 parser.py
 
-Generic data parser utilities.
+Generic HTML parsing utilities.
 
 
 Responsibility:
 
-- Parse raw dictionaries
-- Extract safe values
-- Normalize basic fields
+Provide reusable HTML helper functions.
 
 
-IMPORTANT:
+Used by:
 
-parser.py does NOT create ModelInfo.
+crawler.py
+detail_parser.py
 
-The final conversion:
+
+NOT responsible for:
+
+- model extraction
+- model_id generation
+- provider mapping
+- LiteLLM config generation
+
+
+Business parsing belongs to:
+
+crawler.py
 
 detail_parser.py
-        |
-        v
-ModelInfo
-
-
-parser.py MUST NOT handle:
-
-- name
-- display_name
-- title
-- model alias
-- LiteLLM model name
 
 """
 
 from __future__ import annotations
 
 
+import json
 import logging
 from typing import Any, Dict, List, Optional
+
+
+
+from bs4 import BeautifulSoup
+
 
 
 logger = logging.getLogger(__name__)
@@ -45,315 +49,134 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================
-# Value helpers
+# HTML
 # ============================================================
 
 
-def get_value(
-    data: Dict[str, Any],
-    keys: List[str],
-    default=None,
-):
+def create_soup(
+    html: str,
+) -> BeautifulSoup:
     """
-    Get first existing key.
+    Create BeautifulSoup object.
+    """
 
-    Example:
+    return BeautifulSoup(
 
-    get_value(
-        data,
-        [
-            "provider",
-            "vendor"
-        ]
+        html,
+
+        "html.parser",
+
     )
 
-    """
-
-    if not isinstance(
-        data,
-        dict,
-    ):
-
-        return default
 
 
-
-    for key in keys:
-
-
-        if key in data:
-
-
-            value = data[key]
-
-
-            if value is not None:
-
-
-                return value
-
-
-
-    return default
-
-
-
-def get_string(
-    value: Any,
+def extract_text(
+    element,
     default: str = "",
 ) -> str:
     """
-    Convert value to string.
+    Extract clean text.
     """
 
 
-    if value is None:
+    if element is None:
 
         return default
 
 
 
-    return str(value).strip()
+    text = element.get_text(
+
+        " ",
+
+        strip=True,
+
+    )
 
 
-
-def get_float(
-    value: Any,
-    default: float = 0.0,
-) -> float:
-    """
-    Safe float conversion.
-    """
-
-    try:
-
-        return float(value)
-
-    except Exception:
-
-        return default
-
-
-
-def get_list(
-    value: Any,
-) -> List[str]:
-    """
-    Convert value to list[str].
-    """
-
-    if value is None:
-
-        return []
-
-
-
-    if isinstance(
-        value,
-        str,
-    ):
-
-        return [
-
-            x.strip()
-
-            for x in value.split(",")
-
-            if x.strip()
-
-        ]
-
-
-
-    if isinstance(
-        value,
-        list,
-    ):
-
-        return [
-
-            str(x).strip()
-
-            for x in value
-
-            if str(x).strip()
-
-        ]
-
-
-
-    return []
+    return text or default
 
 
 
 # ============================================================
-# Raw crawler parser
+# JSON-LD
 # ============================================================
 
 
-def parse_crawler_item(
-    item: Dict[str, Any],
-) -> Dict[str, Any]:
+def extract_json_ld(
+    html: str,
+) -> List[Any]:
     """
-    Normalize crawler output.
+    Extract JSON-LD blocks.
 
+    Example:
 
-    Input:
+    <script type="application/ld+json">
 
-    {
-        provider,
-        score,
-        detail_url,
-        slug
-    }
-
-
-    Output:
-
-    same structure.
-
-
-    No model_id generated.
     """
 
 
-    if not isinstance(
-        item,
-        dict,
-    ):
 
-        return {}
+    soup = create_soup(
 
+        html
 
-
-    return {
-
-
-        "provider":
-
-            get_string(
-
-                get_value(
-
-                    item,
-
-                    [
-                        "provider"
-                    ]
-
-                )
-
-            ),
-
-
-
-        "score":
-
-            get_float(
-
-                get_value(
-
-                    item,
-
-                    [
-                        "score"
-                    ],
-
-                    0
-
-                )
-
-            ),
-
-
-
-        "detail_url":
-
-            get_string(
-
-                get_value(
-
-                    item,
-
-                    [
-                        "detail_url"
-                    ]
-
-                )
-
-            ),
-
-
-
-        "slug":
-
-            get_string(
-
-                get_value(
-
-                    item,
-
-                    [
-                        "slug"
-                    ]
-
-                )
-
-            ),
-
-    }
-
-
-
-# ============================================================
-# Batch parser
-# ============================================================
-
-
-def parse_crawler_items(
-    items: List[Dict[str, Any]],
-) -> List[Dict[str, Any]]:
-    """
-    Parse crawler result list.
-    """
+    )
 
 
     result = []
 
 
 
-    for item in items:
+    scripts = soup.find_all(
+
+        "script",
+
+        attrs={
+
+            "type":
+
+                "application/ld+json"
+
+        },
+
+    )
+
+
+
+    for script in scripts:
+
+
+        if not script.string:
+
+            continue
+
 
 
         try:
 
 
-            parsed = parse_crawler_item(
+            data = json.loads(
 
-                item
+                script.string
 
             )
 
 
-            if parsed:
+            result.append(
 
+                data
 
-                result.append(
-
-                    parsed
-
-                )
+            )
 
 
 
         except Exception:
 
 
-            logger.exception(
+            logger.debug(
 
-                "parse crawler item failed: %s",
-
-                item,
+                "invalid json ld"
 
             )
 
@@ -364,43 +187,251 @@ def parse_crawler_items(
 
 
 # ============================================================
-# Public API
+# DOM helpers
 # ============================================================
 
 
-def parse(
-    data,
+def find_section(
+    soup: BeautifulSoup,
+    class_name: str,
 ):
     """
-    Public parser entry.
+    Find section by class.
+    """
+
+    return soup.find(
+
+        "section",
+
+        class_=class_name,
+
+    )
 
 
-    Currently only normalizes crawler output.
+
+def find_value_by_label(
+    container,
+    label: str,
+) -> Optional[str]:
+    """
+    Generic key-value parser.
+
+
+    Example:
+
+
+    Label:
+
+        Model ID
+
+
+    Value:
+
+        z-ai/glm-5.2
+
 
     """
 
-    if isinstance(
-        data,
-        list,
+
+
+    if container is None:
+
+        return None
+
+
+
+    text = container.get_text(
+
+        "\n",
+
+        strip=True,
+
+    )
+
+
+
+    lines = [
+
+        line.strip()
+
+        for line in text.splitlines()
+
+        if line.strip()
+
+    ]
+
+
+
+    for index, line in enumerate(lines):
+
+
+        if line.lower() == label.lower():
+
+
+            if index + 1 < len(lines):
+
+
+                return lines[index + 1]
+
+
+
+    return None
+
+
+
+# ============================================================
+# Lists
+# ============================================================
+
+
+def extract_list_items(
+    container,
+) -> List[str]:
+    """
+    Extract li text.
+    """
+
+    if container is None:
+
+        return []
+
+
+
+    result = []
+
+
+
+    for item in container.find_all(
+
+        "li"
+
     ):
 
-        return parse_crawler_items(
 
-            data
+        text = extract_text(
+
+            item
 
         )
 
 
+        if text:
+
+            result.append(
+
+                text
+
+            )
+
+
+
+    return result
+
+
+
+def split_values(
+    value: str,
+) -> List[str]:
+    """
+    Split comma separated values.
+    """
+
+    if not value:
+
+        return []
+
+
+
+    return [
+
+        item.strip()
+
+        for item in value.split(",")
+
+        if item.strip()
+
+    ]
+
+
+
+# ============================================================
+# Recursive search
+# ============================================================
+
+
+def find_key_recursive(
+    data: Any,
+    key: str,
+):
+    """
+    Recursive dictionary search.
+
+    Useful for:
+
+    JSON-LD
+
+    """
+
+
+
     if isinstance(
+
         data,
+
         dict,
+
     ):
 
-        return parse_crawler_item(
 
-            data
+        if key in data:
 
-        )
+            return data[key]
 
 
-    return {}
+
+        for value in data.values():
+
+
+            result = find_key_recursive(
+
+                value,
+
+                key,
+
+            )
+
+
+            if result is not None:
+
+                return result
+
+
+
+    elif isinstance(
+
+        data,
+
+        list,
+
+    ):
+
+
+        for item in data:
+
+
+            result = find_key_recursive(
+
+                item,
+
+                key,
+
+            )
+
+
+            if result is not None:
+
+                return result
+
+
+
+    return None

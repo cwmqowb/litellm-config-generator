@@ -1,43 +1,50 @@
 """
 normalizer.py
 
-Normalize raw model dictionaries into ModelInfo.
-
+Normalize raw model data.
 
 Architecture:
 
-dict
- |
- v
-normalizer.py
- |
- v
+crawler.py
+        |
+        v
+detail_parser.py
+        |
+        v
 ModelInfo
+        |
+        v
+normalizer.py
 
 
 Responsibilities:
 
-- Clean provider
-- Clean capability
-- Clean modality
-- Fill provider defaults
+- Normalize provider
+- Normalize list fields
+- Normalize extra metadata
 
 
 IMPORTANT:
 
-This module MUST NOT create:
+normalizer.py MUST NOT:
 
-- name
-- display_name
-- title
+- generate model_id
+- infer model_id from slug
+- infer model_id from display_name
 
-This module MUST NOT infer fake model_id.
 
-model_id MUST come from:
+Correct source:
 
 detail_parser.py
 
-API Details -> Model ID
+    detail.html
+        |
+        v
+    API Details
+        |
+        v
+    Model ID
+
 
 """
 
@@ -57,6 +64,7 @@ from providers import (
 )
 
 
+
 logger = logging.getLogger(__name__)
 
 
@@ -66,12 +74,30 @@ logger = logging.getLogger(__name__)
 # ============================================================
 
 
+def normalize_string(
+    value: Any,
+) -> str:
+    """
+    Normalize string.
+    """
+
+    if value is None:
+
+        return ""
+
+
+
+    return str(value).strip()
+
+
+
 def normalize_list(
     value: Any,
 ) -> List[str]:
     """
-    Normalize list values.
+    Normalize list fields.
     """
+
 
     if value is None:
 
@@ -80,13 +106,16 @@ def normalize_list(
 
 
     if isinstance(
+
         value,
+
         str,
+
     ):
 
         return [
 
-            item.strip().lower()
+            item.strip()
 
             for item in value.split(",")
 
@@ -97,17 +126,16 @@ def normalize_list(
 
 
     if isinstance(
+
         value,
+
         list,
+
     ):
 
         return [
 
-            str(item)
-
-            .strip()
-
-            .lower()
+            str(item).strip()
 
             for item in value
 
@@ -130,7 +158,7 @@ def normalize_score(
 
     try:
 
-        return float(value or 0)
+        return float(value)
 
     except Exception:
 
@@ -138,8 +166,31 @@ def normalize_score(
 
 
 
+def normalize_extra(
+    value: Any,
+) -> Dict[str, Any]:
+    """
+    Normalize extra metadata.
+    """
+
+    if isinstance(
+
+        value,
+
+        dict,
+
+    ):
+
+        return value
+
+
+
+    return {}
+
+
+
 # ============================================================
-# Single normalize
+# Model normalize
 # ============================================================
 
 
@@ -147,11 +198,10 @@ def normalize_model(
     data: Dict[str, Any],
 ) -> ModelInfo:
     """
-    Convert dict -> ModelInfo.
+    Convert dictionary into ModelInfo.
 
 
-    Expected input:
-
+    Expected:
 
     {
         provider,
@@ -162,30 +212,42 @@ def normalize_model(
         capability,
         modality,
         detail_url,
-        best_for
+        best_for,
+        extra
     }
+
+
+    model_id MUST already exist.
 
     """
 
 
+
     if not isinstance(
+
         data,
+
         dict,
+
     ):
 
         raise TypeError(
+
             "model data must be dict"
+
         )
 
 
 
     provider = normalize_provider_name(
 
-        data.get(
+        normalize_string(
 
-            "provider",
+            data.get(
 
-            ""
+                "provider"
+
+            )
 
         )
 
@@ -193,19 +255,33 @@ def normalize_model(
 
 
 
-    model_id = (
+    model_id = normalize_string(
 
         data.get(
 
-            "model_id",
-
-            ""
+            "model_id"
 
         )
 
-        or ""
-
     )
+
+
+
+    if not model_id:
+
+
+        logger.warning(
+
+            "skip model without model_id"
+
+        )
+
+
+        raise ValueError(
+
+            "model_id missing"
+
+        )
 
 
 
@@ -258,7 +334,7 @@ def normalize_model(
 
                     "score",
 
-                    0
+                    0,
 
                 )
 
@@ -282,9 +358,7 @@ def normalize_model(
 
                 data.get(
 
-                    "capability",
-
-                    []
+                    "capability"
 
                 )
 
@@ -298,9 +372,7 @@ def normalize_model(
 
                 data.get(
 
-                    "modality",
-
-                    []
+                    "modality"
 
                 )
 
@@ -310,11 +382,13 @@ def normalize_model(
 
         detail_url=
 
-            data.get(
+            normalize_string(
 
-                "detail_url",
+                data.get(
 
-                "",
+                    "detail_url"
+
+                )
 
             ),
 
@@ -326,9 +400,21 @@ def normalize_model(
 
                 data.get(
 
-                    "best_for",
+                    "best_for"
 
-                    []
+                )
+
+            ),
+
+
+
+        extra=
+
+            normalize_extra(
+
+                data.get(
+
+                    "extra"
 
                 )
 
@@ -371,20 +457,6 @@ def normalize_models(
             )
 
 
-            if not model.is_valid():
-
-
-                logger.warning(
-
-                    "invalid model skipped: %s",
-
-                    item,
-
-                )
-
-                continue
-
-
 
             if model.model_id in seen:
 
@@ -397,6 +469,7 @@ def normalize_models(
 
                 )
 
+
                 continue
 
 
@@ -408,6 +481,7 @@ def normalize_models(
             )
 
 
+
             result.append(
 
                 model
@@ -416,14 +490,14 @@ def normalize_models(
 
 
 
-        except Exception:
+        except Exception as exc:
 
 
-            logger.exception(
+            logger.warning(
 
                 "normalize failed: %s",
 
-                item,
+                exc,
 
             )
 
@@ -446,5 +520,7 @@ def normalize(
     """
 
     return normalize_models(
+
         models
+
     )

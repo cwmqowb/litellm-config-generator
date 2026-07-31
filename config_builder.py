@@ -1,7 +1,8 @@
 """
 config_builder.py
 
-Build LiteLLM config from unified ModelInfo.
+Build LiteLLM configuration
+from unified ModelInfo.
 
 
 Input:
@@ -11,34 +12,37 @@ Input:
 
 Output:
 
-    LiteLLM compatible config.yaml
+    LiteLLM config dictionary
 
 
 Rules:
 
-1. litellm_params.model MUST use:
+1. LiteLLM model MUST use:
 
-       ModelInfo.model_id
+       model.model_id
 
 
 2. Never use:
 
        name
-       display_name
        title
+       display_name
+       slug
 
 
-3. Provider API key mapping:
+3. Provider API settings come from:
 
        providers.py
 
 
-4. Metadata keeps:
+4. Preserve metadata:
 
        provider
        score
        capability
        context
+       best_for
+       extra
 
 """
 
@@ -46,7 +50,7 @@ from __future__ import annotations
 
 
 import logging
-from typing import Dict, List
+from typing import Any, Dict, List
 
 
 import yaml
@@ -61,18 +65,20 @@ from providers import (
 )
 
 
+
 logger = logging.getLogger(__name__)
 
 
 
 # ============================================================
-# Config Builder
+# Builder
 # ============================================================
 
 
 class ConfigBuilder:
     """
-    Convert ModelInfo list into LiteLLM config.
+    Convert ModelInfo list
+    into LiteLLM config.
     """
 
 
@@ -93,9 +99,9 @@ class ConfigBuilder:
 
     def build(
         self,
-    ) -> Dict:
+    ) -> Dict[str, Any]:
         """
-        Build config dictionary.
+        Build LiteLLM config.
         """
 
 
@@ -110,78 +116,57 @@ class ConfigBuilder:
         ]
 
 
+
         return {
 
             "model_list":
 
-                self._build_model_list(
-                    valid_models
-                )
+                [
+
+                    self.build_model(
+
+                        model
+
+                    )
+
+                    for model in sorted(
+
+                        valid_models,
+
+                        key=lambda x:
+
+                            x.score,
+
+                        reverse=True,
+
+                    )
+
+                ]
 
         }
 
 
 
     # --------------------------------------------------------
-    # model_list
+    # Single model
     # --------------------------------------------------------
 
 
-    def _build_model_list(
-        self,
-        models: List[ModelInfo],
-    ) -> List[Dict]:
-
-
-        result = []
-
-
-        for model in sorted(
-
-            models,
-
-            key=lambda x:
-
-                x.score,
-
-            reverse=True,
-
-        ):
-
-
-            result.append(
-
-                self._build_single(
-                    model
-                )
-
-            )
-
-
-        return result
-
-
-
-    # --------------------------------------------------------
-    # single model
-    # --------------------------------------------------------
-
-
-    def _build_single(
+    def build_model(
         self,
         model: ModelInfo,
-    ) -> Dict:
+    ) -> Dict[str, Any]:
         """
-        Build one LiteLLM model entry.
+        Build one LiteLLM model item.
         """
 
 
-        litellm_params = {
+        params = {
 
 
             # IMPORTANT:
             #
-            # real provider model id
+            # Real provider model id
             #
 
             "model":
@@ -192,8 +177,6 @@ class ConfigBuilder:
 
 
 
-        # api_base
-
         api_base = (
 
             model.api_base
@@ -201,15 +184,19 @@ class ConfigBuilder:
             or
 
             get_api_base(
+
                 model.provider
+
             )
 
         )
 
 
+
         if api_base:
 
-            litellm_params[
+
+            params[
 
                 "api_base"
 
@@ -217,20 +204,18 @@ class ConfigBuilder:
 
 
 
-        # api key
+        api_key_env = get_api_key_env(
 
-        api_key_env = (
-
-            get_api_key_env(
-                model.provider
-            )
+            model.provider
 
         )
 
 
+
         if api_key_env:
 
-            litellm_params[
+
+            params[
 
                 "api_key"
 
@@ -246,80 +231,129 @@ class ConfigBuilder:
 
 
             #
-            # LiteLLM logical routing name
+            # Logical routing name
             #
 
             "model_name":
 
-                self._resolve_logical_name(
+                self.resolve_model_group(
+
                     model
+
                 ),
 
 
 
             "litellm_params":
 
-                litellm_params,
+                params,
 
 
 
             "metadata":
 
-                {
+                self.build_metadata(
 
-                    "provider":
+                    model
 
-                        model.provider,
-
-
-                    "score":
-
-                        model.score,
-
-
-                    "capability":
-
-                        model.capability,
-
-
-                    "context":
-
-                        model.context,
-
-                }
+                )
 
         }
 
 
 
     # --------------------------------------------------------
-    # logical model
+    # Metadata
     # --------------------------------------------------------
 
 
-    def _resolve_logical_name(
+    def build_metadata(
+        self,
+        model: ModelInfo,
+    ) -> Dict[str, Any]:
+        """
+        Preserve model information.
+        """
+
+
+        metadata = {
+
+
+            "provider":
+
+                model.provider,
+
+
+
+            "score":
+
+                model.score,
+
+
+
+            "capability":
+
+                model.capability,
+
+
+
+            "context":
+
+                model.context,
+
+
+
+            "best_for":
+
+                model.best_for,
+
+
+
+        }
+
+
+
+        if model.extra:
+
+
+            metadata[
+
+                "extra"
+
+            ] = model.extra
+
+
+
+        return metadata
+
+
+
+    # --------------------------------------------------------
+    # Logical grouping
+    # --------------------------------------------------------
+
+
+    def resolve_model_group(
         self,
         model: ModelInfo,
     ) -> str:
         """
         Generate logical model group.
 
-        Example:
+        Examples:
 
-        chat
-        vision
-        reasoning
+            chat
+            vision
+            reasoning
 
         """
 
 
         capability = [
 
-            item.lower()
+            x.lower()
 
-            for item in
-
-            model.capability
+            for x in model.capability
 
         ]
 
@@ -327,11 +361,9 @@ class ConfigBuilder:
 
         modality = [
 
-            item.lower()
+            x.lower()
 
-            for item in
-
-            model.modality
+            for x in model.modality
 
         ]
 
@@ -339,15 +371,15 @@ class ConfigBuilder:
 
         if (
 
-            "vision"
-
-            in capability
-
-            or
-
             "image"
 
             in modality
+
+            or
+
+            "vision"
+
+            in capability
 
         ):
 
@@ -378,28 +410,25 @@ class ConfigBuilder:
 
 def build_config(
     models: List[ModelInfo],
-) -> Dict:
+) -> Dict[str, Any]:
     """
-    Public helper.
+    Public builder.
     """
 
-    return (
+    return ConfigBuilder(
 
-        ConfigBuilder(
-            models
-        )
-        .build()
+        models
 
-    )
+    ).build()
 
 
 
 def save_config(
-    config: Dict,
+    config: Dict[str, Any],
     path: str = "config.generated.yaml",
-):
+) -> None:
     """
-    Save yaml file.
+    Save yaml config.
     """
 
 
@@ -427,9 +456,10 @@ def save_config(
         )
 
 
+
     logger.info(
 
-        "config saved: %s",
+        "saved config: %s",
 
         path,
 
