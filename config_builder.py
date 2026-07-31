@@ -1,54 +1,28 @@
 """
 config_builder.py
 
-LiteLLM config.yaml生成器
+Build LiteLLM config.yaml from unified ModelInfo.
 
+Input:
+    List[ModelInfo]
 
-输入:
+Output:
+    LiteLLM compatible yaml
 
-List[LogicalModel]
-
-
-输出:
-
-config.generated.yaml
-
-
-结构:
-
-LogicalModel.models
-
-
-禁止:
-
-ProviderModel
-primary_model
-providers
-mode
 """
-
 
 from __future__ import annotations
 
 
+import os
 import logging
-
-
-from pathlib import Path
-
-
-from typing import Any, Dict, List
-
+from typing import List, Dict
 
 
 import yaml
 
 
-
-from models import (
-    LogicalModel,
-    ModelInfo,
-)
+from models import ModelInfo
 
 
 
@@ -56,250 +30,486 @@ logger = logging.getLogger(__name__)
 
 
 
+# --------------------------------------------------
+# Provider API Key mapping
+# --------------------------------------------------
+
+PROVIDER_KEY_MAP = {
+
+    "nvidia":
+        "os.environ/NVIDIA_API_KEY",
+
+    "nvidia nim":
+        "os.environ/NVIDIA_API_KEY",
 
 
-# ============================================================
-# LiteLLM item
-# ============================================================
+    "openrouter":
+        "os.environ/OPENROUTER_API_KEY",
 
 
-def build_model_entry(
-    logical_name: str,
-    model: ModelInfo
-) -> Dict[str, Any]:
-    """
-    单个LiteLLM model_list节点
-    """
+    "github models":
+        "os.environ/GITHUB_MODELS_API_KEY",
+
+
+    "github":
+        "os.environ/GITHUB_MODELS_API_KEY",
+
+
+    "modelscope":
+        "os.environ/MODELSCOPE_API_KEY",
+
+
+    "sambanova":
+        "os.environ/SAMBANOVA_API_KEY",
+
+
+    "agnes ai":
+        "os.environ/AGNES_API_KEY",
+
+
+    "agnes":
+        "os.environ/AGNES_API_KEY",
+
+
+    "kilo code":
+        "os.environ/KILO_API_KEY",
+
+}
 
 
 
-    params = {
+
+# --------------------------------------------------
+# Provider Base URL fallback
+# --------------------------------------------------
+
+PROVIDER_BASE_URL = {
+
+
+    "nvidia":
+        "https://integrate.api.nvidia.com/v1",
+
+
+    "nvidia nim":
+        "https://integrate.api.nvidia.com/v1",
+
+
+    "openrouter":
+        "https://openrouter.ai/api/v1",
+
+
+}
 
 
 
-        "model":
 
-            model.model_id,
-
-
-
-    }
+# --------------------------------------------------
+# Builder
+# --------------------------------------------------
 
 
-
-    if model.api_base:
-
-
-        params["api_base"] = model.api_base
+class ConfigBuilder:
 
 
+    def __init__(
+        self,
+        models: List[ModelInfo],
+    ):
 
-    if model.api_key_env:
+        self.models = models
 
 
-        params["api_key"] = (
 
-            f"os.environ/{model.api_key_env}"
+    # ----------------------------------------------
+    # public
+    # ----------------------------------------------
 
+
+    def build(self) -> Dict:
+
+
+        valid_models = (
+            self._filter_models()
         )
 
 
-
-    return {
-
-
-        "model_name":
-
-            logical_name,
+        return {
 
 
-
-        "litellm_params":
-
-            params,
-
-
-
-        "metadata": {
-
-
-            "provider":
-
-                model.provider,
-
-
-
-            "model_id":
-
-                model.model_id,
-
-
-
-            "score":
-
-                model.score,
-
-
-
-            "capability":
-
-                model.capability.raw,
+            "model_list":
+                self._build_model_list(
+                    valid_models
+                )
 
         }
 
-    }
 
 
 
+    # ----------------------------------------------
+    # filtering
+    # ----------------------------------------------
 
 
-# ============================================================
-# Config
-# ============================================================
+    def _filter_models(
+        self,
+    ) -> List[ModelInfo]:
 
 
-def build_config(
-    logical_models: List[LogicalModel]
-) -> Dict[str, Any]:
-    """
-    生成LiteLLM配置对象
-    """
+        result = []
 
 
-
-    model_list = []
-
+        for model in self.models:
 
 
-    for logical_model in logical_models:
+            if not model.model_id:
 
-
-
-        for model in logical_model.models:
-
-
-            model_list.append(
-
-                build_model_entry(
-
-                    logical_model.logical_name,
-
+                logger.warning(
+                    "skip model without id: %s",
                     model
-
                 )
 
+                continue
+
+
+
+            if not model.provider:
+
+                logger.warning(
+                    "skip model without provider"
+                )
+
+                continue
+
+
+
+            result.append(
+                model
+            )
+
+
+        return result
+
+
+
+
+    # ----------------------------------------------
+    # model list
+    # ----------------------------------------------
+
+
+    def _build_model_list(
+        self,
+        models: List[ModelInfo],
+    ) -> List[Dict]:
+
+
+        items = []
+
+
+        for model in sorted(
+            models,
+            key=lambda x:
+                x.score or 0,
+
+            reverse=True,
+        ):
+
+
+            item = (
+                self._build_single_model(
+                    model
+                )
+            )
+
+
+            if item:
+
+                items.append(
+                    item
+                )
+
+
+        return items
+
+
+
+
+    # ----------------------------------------------
+    # single model
+    # ----------------------------------------------
+
+
+    def _build_single_model(
+        self,
+        model: ModelInfo,
+    ) -> Dict:
+
+
+        params = {
+
+            "model":
+                model.model_id,
+
+        }
+
+
+
+        # -------------------------
+        # api_base
+        # -------------------------
+
+        api_base = (
+            model.api_base
+            or
+            self._get_provider_base(
+                model.provider
+            )
+        )
+
+
+        if api_base:
+
+            params["api_base"] = (
+                api_base
             )
 
 
 
-    return {
+        # -------------------------
+        # api key
+        # -------------------------
+
+        api_key = (
+            self._get_api_key(
+                model.provider
+            )
+        )
+
+
+        if api_key:
+
+            params["api_key"] = (
+                api_key
+            )
 
 
 
-        "model_list":
-
-            model_list,
+        return {
 
 
+            "model_name":
 
-        "router_settings": {
-
-
-            "routing_strategy":
-
-                "simple-shuffle",
+                self._resolve_alias(
+                    model
+                ),
 
 
 
-            "enable_pre_call_checks":
+            "litellm_params":
 
-                True,
-
-
-        },
+                params,
 
 
 
-        "litellm_settings": {
+            "metadata":
+
+                {
+
+                    "provider":
+                        model.provider,
 
 
-            "drop_params":
-
-                True,
-
-
-        },
+                    "model_id":
+                        model.model_id,
 
 
-    }
+                    "score":
+                        model.score,
+
+
+                    "capability":
+                        model.capability
+                        or [],
+
+
+                    "modality":
+                        model.modality
+                        or [],
+
+
+                    "context":
+                        model.context,
+
+                }
+
+
+        }
 
 
 
 
+    # ----------------------------------------------
+    # logical model
+    # ----------------------------------------------
 
-# ============================================================
-# Write YAML
-# ============================================================
+
+    def _resolve_alias(
+        self,
+        model: ModelInfo,
+    ) -> str:
 
 
-def write_config(
-    logical_models: List[LogicalModel],
-    output_file: str = "config.generated.yaml"
+        caps = [
+
+            x.lower()
+
+            for x in
+            (
+                model.capability
+                or []
+            )
+
+        ]
+
+
+        modality = [
+
+            x.lower()
+
+            for x in
+            (
+                model.modality
+                or []
+            )
+
+        ]
+
+
+
+        # vision
+
+        if (
+            "vision" in caps
+            or
+            "image" in modality
+        ):
+
+            return "vision"
+
+
+
+        # reasoning
+
+        if (
+            "reasoning" in caps
+            or
+            "reasoning" in modality
+        ):
+
+            return "reasoning"
+
+
+
+        return "chat"
+
+
+
+
+    # ----------------------------------------------
+    # provider mapping
+    # ----------------------------------------------
+
+
+    def _get_api_key(
+        self,
+        provider: str,
+    ):
+
+
+        key = (
+            provider
+            .lower()
+            .strip()
+        )
+
+
+        return (
+            PROVIDER_KEY_MAP.get(
+                key
+            )
+        )
+
+
+
+
+    def _get_provider_base(
+        self,
+        provider: str,
+    ):
+
+
+        key = (
+            provider
+            .lower()
+            .strip()
+        )
+
+
+        return (
+            PROVIDER_BASE_URL.get(
+                key
+            )
+        )
+
+
+
+
+# --------------------------------------------------
+# yaml helper
+# --------------------------------------------------
+
+
+def save_config(
+    config: Dict,
+    path: str="config.generated.yaml",
 ):
-    """
-    写入yaml
-    """
 
 
-
-    config = build_config(
-
-        logical_models
-
-    )
-
-
-
-    path = Path(
-
-        output_file
-
-    )
-
-
-
-    with path.open(
-
+    with open(
+        path,
         "w",
-
-        encoding="utf-8"
-
+        encoding="utf-8",
     ) as f:
 
 
-
         yaml.safe_dump(
-
             config,
-
             f,
-
             allow_unicode=True,
-
-            sort_keys=False
-
+            sort_keys=False,
         )
 
 
 
     logger.info(
-
-        "generated config: %s",
-
+        "config saved: %s",
         path
-
     )
 
 
 
-    return path
+# --------------------------------------------------
+# backward compatibility
+# --------------------------------------------------
+
+
+def build_config(
+    models: List[ModelInfo],
+):
+
+    builder = ConfigBuilder(
+        models
+    )
+
+    return builder.build()

@@ -1,329 +1,401 @@
 """
 main.py
 
-LiteLLM Config Generator 主入口
+LiteLLM Config Generator
 
-
-完整流程:
+Pipeline:
 
 crawler
-    |
-    v
-parser
-    |
-    v
+   |
+   v
 detail_parser
-    |
-    v
-normalizer
-    |
-    v
-List[ModelInfo]
-    |
-    v
-builder
-    |
-    v
-List[LogicalModel]
-    |
-    v
+   |
+   v
+ModelInfo
+   |
+   v
 config_builder
-    |
-    v
+   |
+   v
 config.generated.yaml
 
-
-禁止:
-
-ProviderModel
-primary_model
-FallbackBuilder
 """
+
 
 from __future__ import annotations
 
 
 import argparse
-
 import logging
+from typing import List
 
 
 
 from crawler import crawl_models
 
+from detail_parser import (
+    DetailParser,
+)
 
-from parser import parse
+from models import (
+    ModelInfo,
+)
 
-
-from detail_parser import parse_details
-
-
-from normalizer import normalize_models
-
-
-from builder import build
-
-
-from config_builder import write_config
-
-
-
-
-
-# ============================================================
-# Logging
-# ============================================================
-
-
-logging.basicConfig(
-
-    level=logging.INFO,
-
-    format="%(levelname)s %(message)s"
-
+from config_builder import (
+    ConfigBuilder,
+    save_config,
 )
 
 
 
-logger = logging.getLogger(__name__)
+logging.basicConfig(
+    level=logging.INFO,
+    format=
+    "%(levelname)s %(message)s",
+)
+
+
+logger = logging.getLogger(
+    __name__
+)
+
+
+
+# -------------------------------------------------
+# Supported providers
+# -------------------------------------------------
+
+
+SUPPORTED_PROVIDERS = {
+
+
+    "NVIDIA NIM",
+
+    "OpenRouter",
+
+    "GitHub Models",
+
+    "ModelScope",
+
+    "SambaNova",
+
+    "Agnes AI",
+
+    "Kilo Code",
+
+}
+
+
+
+# -------------------------------------------------
+# CLI
+# -------------------------------------------------
+
+
+def parse_args():
+
+
+    parser = argparse.ArgumentParser(
+        description=
+        "Generate LiteLLM config from freellm.net"
+    )
+
+
+    parser.add_argument(
+        "--top",
+        type=int,
+        default=50,
+        help=
+        "number of models to crawl",
+    )
+
+
+    parser.add_argument(
+        "--output",
+        default=
+        "config.generated.yaml",
+    )
+
+
+    parser.add_argument(
+        "--no-detail",
+        action="store_true",
+        help=
+        "skip detail page parsing",
+    )
+
+
+    return parser.parse_args()
 
 
 
 
+# -------------------------------------------------
+# convert raw -> ModelInfo
+# -------------------------------------------------
 
-# ============================================================
-# Main
-# ============================================================
+
+def convert_to_models(
+    raw_models,
+    detail_parser: DetailParser,
+    skip_detail=False,
+) -> List[ModelInfo]:
+
+
+    result = []
+
+
+
+    for raw in raw_models:
+
+
+        provider = (
+            raw.get(
+                "provider"
+            )
+            or ""
+        )
+
+
+
+        if provider not in SUPPORTED_PROVIDERS:
+
+            logger.info(
+                "skip provider %s",
+                provider,
+            )
+
+            continue
+
+
+
+        detail = {}
+
+
+
+        if not skip_detail:
+
+
+            url = (
+                raw.get(
+                    "detail_url"
+                )
+            )
+
+
+            if url:
+
+                detail = (
+                    detail_parser.parse(
+                        url
+                    )
+                )
+
+
+
+        # -------------------------------------
+        # IMPORTANT
+        #
+        # detail page has final model id
+        #
+        # -------------------------------------
+
+        model_id = (
+            detail.get(
+                "model_id"
+            )
+            or
+            raw.get(
+                "model_id"
+            )
+        )
+
+
+        if not model_id:
+
+            logger.warning(
+                "missing model id: %s",
+                raw,
+            )
+
+            continue
+
+
+
+
+        model = ModelInfo(
+
+
+            provider=provider,
+
+
+            model_id=model_id,
+
+
+            api_base=
+                detail.get(
+                    "api_base"
+                ),
+
+
+            score=float(
+                raw.get(
+                    "score",
+                    0
+                )
+            ),
+
+
+            capability=
+                detail.get(
+                    "capability",
+                    []
+                ),
+
+
+            modality=
+                detail.get(
+                    "modality",
+                    []
+                ),
+
+
+            context=
+                detail.get(
+                    "context"
+                ),
+
+
+
+            best_for=
+                detail.get(
+                    "best_for",
+                    []
+                ),
+
+
+
+            detail_url=
+                raw.get(
+                    "detail_url"
+                ),
+
+        )
+
+
+        result.append(
+            model
+        )
+
+
+
+        logger.info(
+            "%s | %s | score=%s",
+            provider,
+            model_id,
+            model.score,
+        )
+
+
+    return result
+
+
+
+
+# -------------------------------------------------
+# main
+# -------------------------------------------------
 
 
 def main():
 
 
-    parser = argparse.ArgumentParser(
+    args = parse_args()
 
-        description=
-        "Generate LiteLLM config from FreeLLM models"
-
-    )
-
-
-
-    parser.add_argument(
-
-        "--top",
-
-        type=int,
-
-        default=50,
-
-        help="number of models"
-
-    )
-
-
-
-    parser.add_argument(
-
-        "--output",
-
-        default="config.generated.yaml",
-
-        help="output yaml file"
-
-    )
-
-
-
-    args = parser.parse_args()
-
-
-
-
-
-    # --------------------------------------------------------
-    # 1. crawler
-    # --------------------------------------------------------
 
 
     logger.info(
-
         "crawl top %s models",
-
-        args.top
-
+        args.top,
     )
 
 
+
+    # -------------------------------
+    # crawl list page
+    # -------------------------------
 
     raw_models = crawl_models(
 
-        top_k=args.top
+        top=args.top
 
     )
 
 
 
     logger.info(
-
-        "crawler result: %s",
-
-        len(raw_models)
-
+        "crawler returned %s models",
+        len(raw_models),
     )
 
 
 
-    if not raw_models:
+
+    # -------------------------------
+    # detail parse
+    # -------------------------------
 
 
-        logger.error(
-
-            "no models found"
-
-        )
-
-        return
+    detail_parser = DetailParser()
 
 
 
+    models = convert_to_models(
 
+        raw_models,
 
-    # --------------------------------------------------------
-    # 2. parser
-    # --------------------------------------------------------
+        detail_parser,
 
-
-    parsed_models = parse(
-
-        raw_models
+        skip_detail=args.no_detail,
 
     )
 
 
 
     logger.info(
-
-        "parser result: %s",
-
-        len(parsed_models)
-
+        "valid models %s",
+        len(models),
     )
 
 
 
+    if not models:
 
-
-    # --------------------------------------------------------
-    # 3. detail parser
-    # --------------------------------------------------------
-
-
-    detail_models = parse_details(
-
-        parsed_models
-
-    )
-
-
-
-    logger.info(
-
-        "detail parser result: %s",
-
-        len(detail_models)
-
-    )
-
-
-
-
-
-    # --------------------------------------------------------
-    # 4. normalizer
-    # --------------------------------------------------------
-
-
-    model_infos = normalize_models(
-
-        detail_models
-
-    )
-
-
-
-    logger.info(
-
-        "ModelInfo count: %s",
-
-        len(model_infos)
-
-    )
-
-
-
-    if not model_infos:
-
-
-        logger.error(
-
-            "no ModelInfo generated"
-
-        )
-
-        return
-
-
-
-
-
-    # --------------------------------------------------------
-    # 5. builder
-    # --------------------------------------------------------
-
-
-    logical_models = build(
-
-        model_infos
-
-    )
-
-
-
-    logger.info(
-
-        "LogicalModel count: %s",
-
-        len(logical_models)
-
-    )
-
-
-
-    for logical in logical_models:
-
-
-        logger.info(
-
-            "logical model %s -> %s",
-
-            logical.logical_name,
-
-            len(logical.models)
-
+        raise RuntimeError(
+            "No valid models found"
         )
 
 
 
+    # -------------------------------
+    # build config
+    # -------------------------------
 
 
-    # --------------------------------------------------------
-    # 6. config
-    # --------------------------------------------------------
+    builder = ConfigBuilder(
+
+        models
+
+    )
 
 
-    write_config(
+    config = builder.build()
 
-        logical_models,
+
+
+    save_config(
+
+        config,
 
         args.output
 
@@ -332,18 +404,12 @@ def main():
 
 
     logger.info(
-
-        "finished: %s",
-
-        args.output
-
+        "DONE"
     )
-
 
 
 
 
 if __name__ == "__main__":
-
 
     main()
