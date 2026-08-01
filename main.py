@@ -69,7 +69,7 @@ from crawler import crawl_models
 
 
 from detail_parser import (
-    DetailParser,
+    parse_details as parse_detail_pages,
 )
 
 
@@ -83,15 +83,15 @@ from config_builder import (
     save_config,
 )
 
-
+from providers import (
+    get_provider,
+    normalize_provider_name,
+)
 
 from models import ModelInfo
 
 
-
 logger = logging.getLogger(__name__)
-
-
 
 
 # ============================================================
@@ -100,18 +100,10 @@ logger = logging.getLogger(__name__)
 
 
 def setup_logging():
-
     logging.basicConfig(
-
         level=logging.INFO,
-
-        format=
-
-            "%(levelname)s %(message)s",
-
+        format="%(levelname)s %(message)s",
     )
-
-
 
 
 # ============================================================
@@ -120,49 +112,50 @@ def setup_logging():
 
 
 def parse_args():
-
     parser = argparse.ArgumentParser(
-
-        description=
-
-            "Generate LiteLLM config from FreeLLM models"
-
+        description="Generate LiteLLM config from FreeLLM models"
     )
-
-
     parser.add_argument(
-
         "--top",
-
         type=int,
-
         default=50,
-
-        help=
-
-            "number of models to crawl",
-
+        help="number of models to crawl",
     )
-
-
     parser.add_argument(
-
         "--output",
-
-        default=
-
-            "config.generated.yaml",
-
-        help=
-
-            "output yaml file",
-
+        default="config.generated.yaml",
+        help="output yaml file",
     )
-
-
     return parser.parse_args()
 
 
+# ============================================================
+# Provider filtering
+# ============================================================
+
+
+def filter_supported_models(raw_models: List[dict]) -> List[dict]:
+    """
+    Keep only models whose provider is currently supported by the
+    registry in providers.py.
+    """
+    result = []
+
+    for model in raw_models:
+        provider_name = normalize_provider_name(model.get("provider", ""))
+        if not provider_name:
+            continue
+
+        if get_provider(provider_name) is None:
+            logger.info(
+                "skip unsupported provider before detail fetch: %s",
+                provider_name,
+            )
+            continue
+
+        result.append(model)
+
+    return result
 
 
 # ============================================================
@@ -170,95 +163,11 @@ def parse_args():
 # ============================================================
 
 
-def parse_details(
-    raw_models: List[dict],
-) -> List[ModelInfo]:
+def parse_details(raw_models: List[dict]) -> List[ModelInfo]:
     """
-    Parse detail pages.
-
-    crawler output:
-
-        provider
-        detail_url
-        slug
-        extra
-
-
-    detail_parser output:
-
-        ModelInfo
+    Parse detail pages using the current parser API.
     """
-
-
-    parser = DetailParser()
-
-
-    result = []
-
-
-
-    for index, raw in enumerate(
-
-        raw_models,
-
-        start=1,
-
-    ):
-
-
-        logger.info(
-
-            "parse detail %s/%s: %s",
-
-            index,
-
-            len(raw_models),
-
-            raw.get(
-
-                "detail_url"
-
-            ),
-
-        )
-
-
-
-        try:
-
-
-            model = parser.parse(
-
-                raw
-
-            )
-
-
-            if model:
-
-                result.append(
-
-                    model
-
-                )
-
-
-        except Exception as exc:
-
-
-            logger.warning(
-
-                "detail parse failed: %s",
-
-                exc,
-
-            )
-
-
-
-    return result
-
-
+    return parse_detail_pages(raw_models)
 
 
 # ============================================================
@@ -266,199 +175,46 @@ def parse_details(
 # ============================================================
 
 
-def generate_config(
-    top: int,
-    output: str,
-):
+def generate_config(top: int, output: str):
     """
     Complete generation flow.
     """
 
-
-
-    #
-    # Step 1
-    #
-    # models.html
-    #
-
-    logger.info(
-
-        "crawl top %s models",
-
-        top,
-
-    )
-
-
-
-    raw_models = crawl_models(
-
-        top_k=top
-
-    )
-
-
-
-    logger.info(
-
-        "crawler models: %s",
-
-        len(raw_models),
-
-    )
-
-
+    logger.info("crawl top %s models", top)
+    raw_models = crawl_models(top_k=top)
+    logger.info("crawler models: %s", len(raw_models))
 
     if not raw_models:
+        raise RuntimeError("No models extracted from models.html")
 
+    raw_models = filter_supported_models(raw_models)
+    logger.info("supported provider models after filter: %s", len(raw_models))
 
-        raise RuntimeError(
+    if not raw_models:
+        raise RuntimeError("No supported models after provider filtering")
 
-            "No models extracted from models.html"
-
-        )
-
-
-
-
-    #
-    # Step 2
-    #
-    # detail.html
-    #
-
-    detail_models = parse_details(
-
-        raw_models
-
-    )
-
-
-
-    logger.info(
-
-        "detail parsed models: %s",
-
-        len(detail_models),
-
-    )
-
-
+    detail_models = parse_details(raw_models)
+    logger.info("detail parsed models: %s", len(detail_models))
 
     if not detail_models:
-
-
-        raise RuntimeError(
-
-            "No models parsed from detail pages"
-
-        )
-
-
-
-
-    #
-    # Step 3
-    #
-    # Normalize ModelInfo
-    #
+        raise RuntimeError("No models parsed from detail pages")
 
     normalized = normalize_models(
-
-        [
-
-            model.__dict__
-
-            for model in detail_models
-
-        ]
-
+        [model.__dict__ for model in detail_models]
     )
-
-
-
-    logger.info(
-
-        "normalized models: %s",
-
-        len(normalized),
-
-    )
-
-
+    logger.info("normalized models: %s", len(normalized))
 
     if not normalized:
-
-
-        raise RuntimeError(
-
-            "No valid models after normalization"
-
-        )
-
-
-
-
-    #
-    # Step 4
-    #
-    # Build LiteLLM config
-    #
-    # IMPORTANT:
-    #
-    # Pass normalized data,
-    # NOT ModelInfo objects.
-    #
+        raise RuntimeError("No valid models after normalization")
 
     config = build_config(
-
-        normalized
-
+        [model.__dict__ for model in normalized]
     )
+    if not config.get("model_list"):
+        raise RuntimeError("No models generated into config")
 
-
-
-    if not config.get(
-
-        "model_list"
-
-    ):
-
-
-        raise RuntimeError(
-
-            "No models generated into config"
-
-        )
-
-
-
-
-    #
-    # Step 5
-    #
-    # Save yaml
-    #
-
-    save_config(
-
-        config,
-
-        output,
-
-    )
-
-
-
-    logger.info(
-
-        "config generated successfully"
-
-    )
-
-
-
+    save_config(config, output)
+    logger.info("config generated successfully")
 
 
 # ============================================================
@@ -467,22 +223,13 @@ def generate_config(
 
 
 def main():
-
     setup_logging()
-
-
     args = parse_args()
+    generate_config(top=args.top, output=args.output)
 
 
-
-    generate_config(
-
-        top=args.top,
-
-        output=args.output,
-
-    )
-
+if __name__ == "__main__":
+    main()
 
 
 

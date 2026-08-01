@@ -1,0 +1,449 @@
+router_settings:
+  routing_strategy: simple-shuffle
+  num_retries: 2
+  timeout: 60
+  fallbacks:
+  - chat:
+    - glm-5.2
+    - minimax-m3
+    - deepseek-v4-flash
+    - hy3
+    - nex-n2-pro
+    - deepseek-v4-pro
+    - nemotron-3-ultra-550b-a55b
+    - kimi-k2.6
+    - nvidia-nemotron-3-ultra-550b-a55b-free
+    - glm-5.1
+    - agnes-2.0-flash
+  - reasoning:
+    - chat
+litellm_settings:
+  drop_params: true
+model_list:
+- model_name: glm-5.2
+  litellm_params:
+    model: z-ai/glm-5.2
+    api_base: https://integrate.api.nvidia.com/v1
+    api_key: os.environ/NVIDIA_API_KEY_1
+  metadata:
+    provider: nvidia
+    score: 0.0
+    capability: &id001
+    - reasoning
+    - tool calling
+    - structured output
+    context: 1.0M
+    best_for: &id002
+    - Chat
+    extra: &id003
+      position: 2
+      source: models.html
+      benchmark:
+      - name: Intelligence
+        value: 51.1/100
+      - name: Coding
+        value: 68.8/100
+      - name: Agentic
+        value: 43.1/100
+      - name: Speed
+        value: 106 tok/s
+      - name: Context
+        value: 1.0M
+- model_name: glm-5.2
+  litellm_params:
+    model: z-ai/glm-5.2
+    api_base: https://integrate.api.nvidia.com/v1
+    api_key: os.environ/NVIDIA_API_KEY_2
+  metadata:
+    provider: nvidia
+    score: 0.0
+    capability: *id001
+    context: 1.0M
+    best_for: *id002
+    extra: *id003
+- model_name: minimax-m3
+  litellm_params:
+    model: minimax/minimax-m3
+    api_base: https://openrouter.ai/api/v1
+    api_key: os.environ/OPENROUTER_API_KEY
+  metadata:
+    provider: openrouter
+    score: 0.0
+    capability:
+    - reasoning
+    - tool calling
+    - structured output
+    context: 1.0M
+    best_for:
+    - Chat
+    extra:
+      position: 4
+      source: models.html
+      benchmark:
+      - name: Intelligence
+        value: 44.4/100
+      - name: Coding
+        value: 58.6/100
+      - name: Agentic
+        value: 35.4/100
+      - name: Speed
+        value: 77 tok/s
+      - name: Context
+        value: 1.0M
+- model_name: minimax-m3
+  litellm_params:
+    model: minimaxai/minimax-m3
+    api_base: https://integrate.api.nvidia.com/v1
+    api_key: os.environ/NVIDIA_API_KEY_1
+  metadata:
+    provider: nvidia
+    score: 0.0
+    capability: &id004
+    - reasoning
+    - tool calling
+    context: 1.0M
+    best_for: &id005
+    - Chat
+    extra: &id006
+      position: 10
+      source: models.html
+      benchmark:
+      - name: Intelligence
+        value: 44.4/100
+      - name: Coding
+        value: 58.6/100
+      - name: Agentic
+        value: 35.4/100
+      - name: Speed
+        value: 77 tok/s
+      - name: Context
+        value: 1.0M
+- model_name: minimax-m3
+  litellm_params:
+    model: minimaxai/minimax-m3
+    api_base: https://integrate.api.nvidia.com/v1
+    api_key: os.environ/NVIDIA_API_KEY_2
+  metadata:
+    provider: nvidia
+    score: 0.0
+    capability: *id004
+    context: 1.0M
+    best_for: *id005
+    extra: *id006
+- model_name: deepseek-v4-flash
+  litellm_params:
+    model: deepseek/deepseek-v4-flash
+    api_base: https://openrouter.ai/api/v1
+    api_key: os.environ/OPENROUTER_API_KEY
+  metadata:
+    provider: openrouter
+    score: 0.0
+    capability:
+    - reasoning
+    - tool calling
+    - structured output
+    - temperature control
+    context: 1.0M
+    best_for:
+    - Chat
+    extra:
+      position: 5
+      source: models.html
+      benchmark:
+      - name: Intelligence
+        value: 40.3/100
+      - name: Coding
+        value: 56.2/100
+      - name: Agentic
+        value: 31.1/100
+      - name: Speed
+        value: 85 tok/s
+      - name: Context
+        value: 1.0M
+- model_name: deepseek-v4-flash
+  litellm_params:
+    model: deepseek-ai/deepseek-v4-flash
+    api_base: https://integrate.api.nvidia.com/v1
+    api_key: os.environ/NVIDIA_API_KEY_1
+  metadata:
+    provider: nvidia
+    score: 0.0
+    capability: &id007
+    - reasoning
+    - tool calling
+    - structured output
+    - temperature control
+    context: 1.0M
+    best_for: &id008
+    - Chat
+    extra: &id009
+      position: 11
+      source: models.html
+      benchmark:
+      - name: Intelligence
+        value: 40.3/100
+      - name: Coding
+        value: 56.2/100
+      - name: Agentic
+        value: 31.1/100
+      - name: Context
+        value: 1.0M
+- model_name: deepseek-v4-flash
+  litellm_params:
+    model: deepseek-ai/deepseek-v4-flash
+    api_base: https://integrate.api.nvidia.com/v1
+    api_key: os.environ/NVIDIA_API_KEY_2
+  metadata:
+    provider: nvidia
+    score: 0.0
+    capability: *id007
+    context: 1.0M
+    best_for: *id008
+    extra: *id009
+- model_name: hy3
+  litellm_params:
+    model: tencent/hy3
+    api_base: https://openrouter.ai/api/v1
+    api_key: os.environ/OPENROUTER_API_KEY
+  metadata:
+    provider: openrouter
+    score: 0.0
+    capability:
+    - reasoning
+    - tool calling
+    - structured output
+    - temperature control
+    context: 262K
+    best_for:
+    - Chat
+    extra:
+      position: 6
+      source: models.html
+      benchmark:
+      - name: Intelligence
+        value: 41.2/100
+      - name: Coding
+        value: 58.8/100
+      - name: Agentic
+        value: 30.7/100
+      - name: Speed
+        value: 69 tok/s
+      - name: Context
+        value: 262K
+- model_name: nex-n2-pro
+  litellm_params:
+    model: nex-agi/nex-n2-pro
+    api_base: https://openrouter.ai/api/v1
+    api_key: os.environ/OPENROUTER_API_KEY
+  metadata:
+    provider: openrouter
+    score: 0.0
+    capability:
+    - reasoning
+    - tool calling
+    context: 262K
+    best_for:
+    - Chat
+    extra:
+      position: 9
+      source: models.html
+      benchmark:
+      - name: Intelligence
+        value: 41/100
+      - name: Coding
+        value: 59.1/100
+      - name: Agentic
+        value: 31/100
+      - name: Speed
+        value: 126 tok/s
+      - name: Context
+        value: 262K
+- model_name: deepseek-v4-pro
+  litellm_params:
+    model: deepseek-ai/deepseek-v4-pro
+    api_base: https://integrate.api.nvidia.com/v1
+    api_key: os.environ/NVIDIA_API_KEY_1
+  metadata:
+    provider: nvidia
+    score: 0.0
+    capability: &id010
+    - reasoning
+    - tool calling
+    - structured output
+    - temperature control
+    context: 1.0M
+    best_for: &id011
+    - Chat
+    extra: &id012
+      position: 14
+      source: models.html
+      benchmark:
+      - name: Intelligence
+        value: 44.3/100
+      - name: Coding
+        value: 59.4/100
+      - name: Agentic
+        value: 36.4/100
+      - name: Speed
+        value: 62 tok/s
+      - name: Context
+        value: 1.0M
+- model_name: deepseek-v4-pro
+  litellm_params:
+    model: deepseek-ai/deepseek-v4-pro
+    api_base: https://integrate.api.nvidia.com/v1
+    api_key: os.environ/NVIDIA_API_KEY_2
+  metadata:
+    provider: nvidia
+    score: 0.0
+    capability: *id010
+    context: 1.0M
+    best_for: *id011
+    extra: *id012
+- model_name: nemotron-3-ultra-550b-a55b
+  litellm_params:
+    model: nvidia/nemotron-3-ultra-550b-a55b:free
+    api_base: https://openrouter.ai/api/v1
+    api_key: os.environ/OPENROUTER_API_KEY
+  metadata:
+    provider: openrouter
+    score: 0.0
+    capability:
+    - reasoning
+    - tool calling
+    - temperature control
+    context: 1.0M
+    best_for:
+    - Chat
+    - Reasoning
+    extra:
+      position: 15
+      source: models.html
+      benchmark:
+      - name: Intelligence
+        value: 37.8/100
+      - name: Coding
+        value: 49.3/100
+      - name: Agentic
+        value: 27.4/100
+      - name: Speed
+        value: 98 tok/s
+      - name: Context
+        value: 1.0M
+- model_name: kimi-k2.6
+  litellm_params:
+    model: moonshotai/kimi-k2.6
+    api_base: https://openrouter.ai/api/v1
+    api_key: os.environ/OPENROUTER_API_KEY
+  metadata:
+    provider: openrouter
+    score: 0.0
+    capability:
+    - reasoning
+    - tool calling
+    - structured output
+    - file attachments
+    - temperature control
+    context: 262K
+    best_for:
+    - Chat
+    extra:
+      position: 16
+      source: models.html
+      benchmark:
+      - name: Intelligence
+        value: 42.8/100
+      - name: Coding
+        value: 56/100
+      - name: Agentic
+        value: 30.3/100
+      - name: Speed
+        value: 68 tok/s
+      - name: Context
+        value: 262K
+- model_name: nvidia-nemotron-3-ultra-550b-a55b-free
+  litellm_params:
+    model: nvidia-nemotron-3-ultra-550b-a55b-free
+    api_base: https://api.kilo.ai/v1
+    api_key: os.environ/KILO_API_KEY
+  metadata:
+    provider: kilo
+    score: 0.0
+    capability:
+    - reasoning
+    - tool calling
+    - temperature control
+    context: 1.0M
+    best_for:
+    - Chat
+    - Reasoning
+    extra:
+      position: 17
+      source: models.html
+      benchmark:
+      - name: Intelligence
+        value: 37.8/100
+      - name: Coding
+        value: 49.3/100
+      - name: Agentic
+        value: 27.4/100
+      - name: Context
+        value: 1.0M
+- model_name: glm-5.1
+  litellm_params:
+    model: z-ai/glm-5.1
+    api_base: https://openrouter.ai/api/v1
+    api_key: os.environ/OPENROUTER_API_KEY
+  metadata:
+    provider: openrouter
+    score: 0.0
+    capability:
+    - reasoning
+    - tool calling
+    - structured output
+    context: 205K
+    best_for:
+    - Chat
+    extra:
+      position: 19
+      source: models.html
+      benchmark:
+      - name: Intelligence
+        value: 40.2/100
+      - name: Coding
+        value: 55.8/100
+      - name: Agentic
+        value: 29.9/100
+      - name: Speed
+        value: 65 tok/s
+      - name: Context
+        value: 205K
+- model_name: agnes-2.0-flash
+  litellm_params:
+    model: agnes-2.0-flash
+    api_base: https://api.agnes-ai.com/v1
+    api_key: os.environ/AGNES_API_KEY
+  metadata:
+    provider: agnes
+    score: 0.0
+    capability:
+    - tool calling
+    context: 256K
+    best_for:
+    - Chat
+    extra:
+      position: 20
+      source: models.html
+      benchmark:
+      - name: Agentic
+        value: 60.9/100
+      - name: Context
+        value: 256K
+- model_name: chat
+  litellm_params:
+    model: z-ai/glm-5.2
+  metadata: {}
+- model_name: reasoning
+  litellm_params:
+    model: z-ai/glm-5.2
+  metadata: {}

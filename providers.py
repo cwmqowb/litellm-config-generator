@@ -34,7 +34,7 @@ from __future__ import annotations
 
 
 from dataclasses import dataclass, field
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 
 
 
@@ -53,6 +53,11 @@ class ProviderInfo:
 
 
     api_base: Optional[str] = None
+
+
+    api_key_envs: List[str] = field(
+        default_factory=list
+    )
 
 
     api_key_env: Optional[str] = None
@@ -85,9 +90,12 @@ PROVIDER_REGISTRY: Dict[str, ProviderInfo] = {
 
                 "https://integrate.api.nvidia.com/v1",
 
-            api_key_env=
+            api_key_envs=[
+                "NVIDIA_API_KEY_1",
+                "NVIDIA_API_KEY_2",
+            ],
 
-                "NVIDIA_API_KEY",
+            api_key_env="NVIDIA_API_KEY_1",
 
         ),
 
@@ -103,9 +111,11 @@ PROVIDER_REGISTRY: Dict[str, ProviderInfo] = {
 
                 "https://openrouter.ai/api/v1",
 
-            api_key_env=
-
+            api_key_envs=[
                 "OPENROUTER_API_KEY",
+            ],
+
+            api_key_env="OPENROUTER_API_KEY",
 
         ),
 
@@ -121,9 +131,11 @@ PROVIDER_REGISTRY: Dict[str, ProviderInfo] = {
 
                 "https://models.inference.ai.azure.com",
 
-            api_key_env=
-
+            api_key_envs=[
                 "GITHUB_MODELS_API_KEY",
+            ],
+
+            api_key_env="GITHUB_MODELS_API_KEY",
 
         ),
 
@@ -139,9 +151,11 @@ PROVIDER_REGISTRY: Dict[str, ProviderInfo] = {
 
                 "https://api-inference.modelscope.cn/v1",
 
-            api_key_env=
-
+            api_key_envs=[
                 "MODELSCOPE_API_KEY",
+            ],
+
+            api_key_env="MODELSCOPE_API_KEY",
 
         ),
 
@@ -157,9 +171,11 @@ PROVIDER_REGISTRY: Dict[str, ProviderInfo] = {
 
                 "https://api.sambanova.ai/v1",
 
-            api_key_env=
-
+            api_key_envs=[
                 "SAMBANOVA_API_KEY",
+            ],
+
+            api_key_env="SAMBANOVA_API_KEY",
 
         ),
 
@@ -175,9 +191,11 @@ PROVIDER_REGISTRY: Dict[str, ProviderInfo] = {
 
                 "https://api.agnes-ai.com/v1",
 
-            api_key_env=
-
+            api_key_envs=[
                 "AGNES_API_KEY",
+            ],
+
+            api_key_env="AGNES_API_KEY",
 
         ),
 
@@ -193,9 +211,11 @@ PROVIDER_REGISTRY: Dict[str, ProviderInfo] = {
 
                 "https://api.kilo.ai/v1",
 
-            api_key_env=
-
+            api_key_envs=[
                 "KILO_API_KEY",
+            ],
+
+            api_key_env="KILO_API_KEY",
 
         ),
 
