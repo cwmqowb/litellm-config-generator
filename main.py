@@ -3,6 +3,7 @@ main.py
 
 Application entry.
 
+
 Pipeline:
 
 
@@ -50,19 +51,18 @@ config.generated.yaml
 
 Usage:
 
-
 python main.py --top 100
 
-
 """
+
 
 from __future__ import annotations
 
 
 import argparse
 import logging
-from typing import List
 
+from typing import List
 
 
 from crawler import crawl_models
@@ -93,6 +93,7 @@ logger = logging.getLogger(__name__)
 
 
 
+
 # ============================================================
 # Logging
 # ============================================================
@@ -109,6 +110,7 @@ def setup_logging():
             "%(levelname)s %(message)s",
 
     )
+
 
 
 
@@ -162,6 +164,7 @@ def parse_args():
 
 
 
+
 # ============================================================
 # Detail processing
 # ============================================================
@@ -187,9 +190,7 @@ def parse_details(
     """
 
 
-
     parser = DetailParser()
-
 
 
     result = []
@@ -233,9 +234,7 @@ def parse_details(
             )
 
 
-
             if model:
-
 
                 result.append(
 
@@ -258,6 +257,7 @@ def parse_details(
 
 
     return result
+
 
 
 
@@ -291,6 +291,7 @@ def generate_config(
     )
 
 
+
     raw_models = crawl_models(
 
         top_k=top
@@ -320,6 +321,7 @@ def generate_config(
 
 
 
+
     #
     # Step 2
     #
@@ -344,10 +346,22 @@ def generate_config(
 
 
 
+    if not detail_models:
+
+
+        raise RuntimeError(
+
+            "No models parsed from detail pages"
+
+        )
+
+
+
+
     #
     # Step 3
     #
-    # normalize ModelInfo
+    # Normalize ModelInfo
     #
 
     normalized = normalize_models(
@@ -366,7 +380,7 @@ def generate_config(
 
     logger.info(
 
-        "valid ModelInfo: %s",
+        "normalized models: %s",
 
         len(normalized),
 
@@ -379,16 +393,22 @@ def generate_config(
 
         raise RuntimeError(
 
-            "No valid models found"
+            "No valid models after normalization"
 
         )
+
 
 
 
     #
     # Step 4
     #
-    # LiteLLM config
+    # Build LiteLLM config
+    #
+    # IMPORTANT:
+    #
+    # Pass normalized data,
+    # NOT ModelInfo objects.
     #
 
     config = build_config(
@@ -399,10 +419,26 @@ def generate_config(
 
 
 
+    if not config.get(
+
+        "model_list"
+
+    ):
+
+
+        raise RuntimeError(
+
+            "No models generated into config"
+
+        )
+
+
+
+
     #
     # Step 5
     #
-    # save yaml
+    # Save yaml
     #
 
     save_config(
@@ -420,6 +456,8 @@ def generate_config(
         "config generated successfully"
 
     )
+
+
 
 
 
@@ -444,6 +482,8 @@ def main():
         output=args.output,
 
     )
+
+
 
 
 

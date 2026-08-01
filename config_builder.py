@@ -1,69 +1,46 @@
 """
 config_builder.py
 
-Build LiteLLM configuration
-from unified ModelInfo.
+Build LiteLLM configuration.
+
+Responsibility:
+
+ModelInfo
+    |
+    v
+LiteLLM yaml
 
 
-Input:
+Responsible for:
 
-    List[ModelInfo]
-
-
-Output:
-
-    LiteLLM config dictionary
+- logical model grouping
+- provider model naming
+- metadata generation
+- yaml output
 
 
-Rules:
+Not responsible for:
 
-1. LiteLLM model MUST use:
-
-       model.model_id
-
-
-2. Never use:
-
-       name
-       title
-       display_name
-       slug
-
-
-3. Provider API settings come from:
-
-       providers.py
-
-
-4. Preserve metadata:
-
-       provider
-       score
-       capability
-       context
-       best_for
-       extra
-
+- html parsing
+- model crawling
+- provider discovery
+- validation
 """
+
 
 from __future__ import annotations
 
 
-import logging
-from typing import Any, Dict, List
-
-
 import yaml
+import logging
 
-
-from models import ModelInfo
+from typing import List, Dict, Any
 
 
 from providers import (
-    get_api_base,
-    get_api_key_env,
+    get_provider,
+    normalize_provider_name,
 )
-
 
 
 logger = logging.getLogger(__name__)
@@ -71,176 +48,455 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================
-# Builder
+# Logical Model Detection
 # ============================================================
 
 
-class ConfigBuilder:
+def detect_logical_model(
+    model: Dict[str, Any],
+) -> str:
     """
-    Convert ModelInfo list
-    into LiteLLM config.
+    Detect LiteLLM logical model name.
+
+
+    Priority:
+
+    vision
+        >
+    reasoning
+        >
+    chat
+
     """
 
 
-
-    def __init__(
-        self,
-        models: List[ModelInfo],
-    ):
-
-        self.models = models
+    capability = model.get(
+        "capability",
+        []
+    )
 
 
+    if not capability:
 
-    # --------------------------------------------------------
-    # Public
-    # --------------------------------------------------------
-
-
-    def build(
-        self,
-    ) -> Dict[str, Any]:
-        """
-        Build LiteLLM config.
-        """
+        capability = []
 
 
-        valid_models = [
+    capability = [
+
+        str(x).lower()
+
+        for x in capability
+
+    ]
+
+
+
+    extra = model.get(
+        "extra",
+        {}
+    )
+
+
+    best_for = model.get(
+        "best_for",
+        []
+    )
+
+
+    best_for = [
+
+        str(x).lower()
+
+        for x in best_for
+
+    ]
+
+
+
+    #
+    # Vision / multimodal
+    #
+
+    vision_keywords = [
+
+        "vision",
+
+        "image",
+
+        "file attachments",
+
+        "multimodal",
+
+    ]
+
+
+    for item in capability + best_for:
+
+        if item in vision_keywords:
+
+            return "vision"
+
+
+
+    #
+    # Reasoning
+    #
+
+    reasoning_keywords = [
+
+        "reasoning",
+
+    ]
+
+
+    for item in capability:
+
+        if item in reasoning_keywords:
+
+            return "reasoning"
+
+
+
+    return "chat"
+
+
+
+
+# ============================================================
+# LiteLLM model name
+# ============================================================
+
+
+def build_litellm_model_name(
+    model: Dict[str, Any],
+) -> str:
+    """
+    Build provider/model format.
+
+    Example:
+
+        nvidia
+        z-ai/glm-5.2
+
+    becomes:
+
+        nvidia/z-ai/glm-5.2
+
+    """
+
+
+    provider = normalize_provider_name(
+
+        model.get(
+
+            "provider",
+
+            ""
+
+        )
+
+    )
+
+
+    name = (
+
+        model.get(
+
+            "model_id"
+
+        )
+
+        or model.get(
+
+            "name"
+
+        )
+
+        or ""
+
+    )
+
+
+
+    if not name:
+
+        return ""
+
+
+
+    #
+    # already formatted
+    #
+
+    if "/" in name:
+
+        #
+        # avoid duplicate prefix
+        #
+
+        if name.startswith(
+
+            provider + "/"
+
+        ):
+
+            return name
+
+
+
+    if provider:
+
+        return (
+
+            provider
+
+            +
+
+            "/"
+
+            +
+
+            name
+
+        )
+
+
+    return name
+
+
+
+
+
+# ============================================================
+# Metadata
+# ============================================================
+
+
+def build_metadata(
+    model: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    Preserve model information.
+    """
+
+
+    metadata = {
+
+
+        "provider":
+
+            model.get(
+
+                "provider"
+
+            ),
+
+
+
+        "score":
+
+            model.get(
+
+                "score",
+
+                0.0
+
+            ),
+
+
+
+        "capability":
+
+            model.get(
+
+                "capability",
+
+                []
+
+            ),
+
+
+
+        "context":
+
+            model.get(
+
+                "context"
+
+            ),
+
+
+
+        "best_for":
+
+            model.get(
+
+                "best_for",
+
+                []
+
+            ),
+
+
+    }
+
+
+
+    extra = model.get(
+
+        "extra"
+
+    )
+
+
+    if extra:
+
+        metadata["extra"] = extra
+
+
+
+    return metadata
+
+
+
+
+
+# ============================================================
+# Build Config
+# ============================================================
+
+
+def build_config(
+    models: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """
+    Build LiteLLM config.
+
+    Keep public interface stable.
+    """
+
+
+    model_list = []
+
+
+
+    for model in models:
+
+
+        provider = normalize_provider_name(
+
+            model.get(
+
+                "provider",
+
+                ""
+
+            )
+
+        )
+
+
+
+        #
+        # Provider validation
+        #
+
+        provider_info = get_provider(
+
+            provider
+
+        )
+
+
+        if not provider_info:
+
+
+            logger.warning(
+
+                "skip unsupported provider: %s",
+
+                provider,
+
+            )
+
+
+            continue
+
+
+
+
+        litellm_model = build_litellm_model_name(
 
             model
 
-            for model in self.models
-
-            if model.is_valid()
-
-        ]
+        )
 
 
+        if not litellm_model:
 
-        return {
 
-            "model_list":
+            logger.warning(
 
-                [
+                "skip model without id: %s",
 
-                    self.build_model(
+                model,
 
-                        model
+            )
 
-                    )
 
-                    for model in sorted(
-
-                        valid_models,
-
-                        key=lambda x:
-
-                            x.score,
-
-                        reverse=True,
-
-                    )
-
-                ]
-
-        }
+            continue
 
 
 
-    # --------------------------------------------------------
-    # Single model
-    # --------------------------------------------------------
+        logical_name = detect_logical_model(
 
+            model
 
-    def build_model(
-        self,
-        model: ModelInfo,
-    ) -> Dict[str, Any]:
-        """
-        Build one LiteLLM model item.
-        """
+        )
+
 
 
         params = {
 
 
-            # IMPORTANT:
-            #
-            # Real provider model id
-            #
-
             "model":
 
-                model.model_id
+                litellm_model,
+
+
+
+            "api_base":
+
+                provider_info.api_base,
+
+
 
         }
 
 
 
-        api_base = (
-
-            model.api_base
-
-            or
-
-            get_api_base(
-
-                model.provider
-
-            )
-
-        )
+        if provider_info.api_key_env:
 
 
+            params["api_key"] = (
 
-        if api_base:
+                "os.environ/"
 
+                +
 
-            params[
-
-                "api_base"
-
-            ] = api_base
-
-
-
-        api_key_env = get_api_key_env(
-
-            model.provider
-
-        )
-
-
-
-        if api_key_env:
-
-
-            params[
-
-                "api_key"
-
-            ] = (
-
-                f"os.environ/{api_key_env}"
+                provider_info.api_key_env
 
             )
 
 
 
-        return {
 
+        item = {
 
-            #
-            # Logical routing name
-            #
 
             "model_name":
 
-                self.resolve_model_group(
-
-                    model
-
-                ),
+                logical_name,
 
 
 
@@ -252,202 +508,69 @@ class ConfigBuilder:
 
             "metadata":
 
-                self.build_metadata(
+                build_metadata(
 
                     model
 
-                )
-
-        }
-
-
-
-    # --------------------------------------------------------
-    # Metadata
-    # --------------------------------------------------------
-
-
-    def build_metadata(
-        self,
-        model: ModelInfo,
-    ) -> Dict[str, Any]:
-        """
-        Preserve model information.
-        """
-
-
-        metadata = {
-
-
-            "provider":
-
-                model.provider,
-
-
-
-            "score":
-
-                model.score,
-
-
-
-            "capability":
-
-                model.capability,
-
-
-
-            "context":
-
-                model.context,
-
-
-
-            "best_for":
-
-                model.best_for,
-
+                ),
 
 
         }
 
 
 
-        if model.extra:
+        model_list.append(
 
+            item
 
-            metadata[
-
-                "extra"
-
-            ] = model.extra
+        )
 
 
 
-        return metadata
+    return {
 
 
+        "model_list":
 
-    # --------------------------------------------------------
-    # Logical grouping
-    # --------------------------------------------------------
-
-
-    def resolve_model_group(
-        self,
-        model: ModelInfo,
-    ) -> str:
-        """
-        Generate logical model group.
-
-        Examples:
-
-            chat
-            vision
-            reasoning
-
-        """
+            model_list
 
 
-        capability = [
-
-            x.lower()
-
-            for x in model.capability
-
-        ]
+    }
 
 
-
-        modality = [
-
-            x.lower()
-
-            for x in model.modality
-
-        ]
-
-
-
-        if (
-
-            "image"
-
-            in modality
-
-            or
-
-            "vision"
-
-            in capability
-
-        ):
-
-            return "vision"
-
-
-
-        if (
-
-            "reasoning"
-
-            in capability
-
-        ):
-
-            return "reasoning"
-
-
-
-        return "chat"
 
 
 
 # ============================================================
-# Helpers
+# Save YAML
 # ============================================================
-
-
-def build_config(
-    models: List[ModelInfo],
-) -> Dict[str, Any]:
-    """
-    Public builder.
-    """
-
-    return ConfigBuilder(
-
-        models
-
-    ).build()
-
 
 
 def save_config(
     config: Dict[str, Any],
-    path: str = "config.generated.yaml",
-) -> None:
+    output: str,
+):
     """
-    Save yaml config.
+    Save yaml file.
     """
 
 
     with open(
 
-        path,
+        output,
 
         "w",
 
-        encoding="utf-8",
+        encoding="utf-8"
 
-    ) as file:
+    ) as f:
 
 
         yaml.safe_dump(
 
             config,
 
-            file,
+            f,
 
             allow_unicode=True,
 
@@ -456,11 +579,10 @@ def save_config(
         )
 
 
-
     logger.info(
 
         "saved config: %s",
 
-        path,
+        output,
 
     )
