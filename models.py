@@ -223,6 +223,23 @@ class ModelInfo:
         }
 
 
+    @property
+    def provider_priority(self) -> int:
+        """
+        Stable provider ordering priority for future sorting logic.
+        """
+
+        priority = {
+            "nvidia": 1,
+            "openrouter": 2,
+            "github": 3,
+            "modelscope": 4,
+            "agnes": 5,
+            "kilo": 6,
+        }
+        return priority.get(self.provider, 99)
+
+
 
     def add_extra(
         self,

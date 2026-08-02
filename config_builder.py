@@ -153,8 +153,72 @@ def normalize_specific_model_name(model: Dict[str, Any]) -> str:
 
 
 # ============================================================
+# Provider Order / Capability normalization
+# ============================================================
+
+PROVIDER_PRIORITY = {
+    "nvidia": 1,
+    "openrouter": 2,
+    "github": 3,
+    "modelscope": 4,
+    "agnes": 5,
+    "kilo": 6,
+}
+
+CAPABILITY_ALIAS_MAP = {
+    "tool calling": "tool",
+    "tool-calling": "tool",
+    "tool_call": "tool",
+    "tool call": "tool",
+    "tools": "tool",
+    "structured output": "json",
+    "structured-output": "json",
+    "json mode": "json",
+    "json-mode": "json",
+    "json": "json",
+    "function calling": "function_call",
+    "function-calling": "function_call",
+    "function call": "function_call",
+    "temperature control": "thinking",
+    "temperature-control": "thinking",
+    "thinking": "thinking",
+    "file attachments": "vision",
+    "file-attachments": "vision",
+    "multimodal": "vision",
+    "vision": "vision",
+    "image": "vision",
+    "audio": "audio",
+    "video": "video",
+    "embedding": "embedding",
+    "rerank": "rerank",
+    "reasoning": "reasoning",
+    "coding": "code",
+    "code": "code",
+}
+
+SUPPORTS_MAP = {
+    "vision": ["image_input", "image_output"],
+    "tool": ["tool_call"],
+    "function_call": ["tool_call"],
+    "json": ["json"],
+    "stream": ["stream"],
+    "thinking": ["thinking"],
+    "audio": ["audio"],
+    "video": ["image_output"],
+}
+
+# ============================================================
 # Metadata Helpers
 # ============================================================
+
+def _normalize_capability(value: Any) -> List[str]:
+    items = []
+    for item in [str(x).strip().lower() for x in list(value or []) if str(x).strip()]:
+        normalized = CAPABILITY_ALIAS_MAP.get(item, item)
+        if normalized not in items:
+            items.append(normalized)
+    return items
+
 
 def _parse_context_tokens(value: Any) -> int | None:
     """
@@ -239,8 +303,13 @@ def _normalize_benchmark(extra: Dict[str, Any] | None) -> Dict[str, Any] | None:
         if name == "context":
             normalized["context_tokens"] = _parse_context_tokens(value)
             continue
-
         normalized[name] = _normalize_numeric(value)
+
+    if "intelligence" in normalized and "coding" in normalized and "agentic" in normalized:
+        normalized["overall"] = round(
+            (normalized["intelligence"] + normalized["coding"] + normalized["agentic"]) / 3,
+            1,
+        )
 
     if not normalized:
         return None
@@ -272,7 +341,7 @@ def _build_capability_type(model: Dict[str, Any], benchmark: Dict[str, Any] | No
     benchmark, and context.
     """
 
-    capability = [str(item).lower() for item in model.get("capability", [])]
+    capability = _normalize_capability(model.get("capability", []))
     best_for = [str(item).lower() for item in model.get("best_for", [])]
 
     capability_types: List[str] = []
@@ -281,26 +350,41 @@ def _build_capability_type(model: Dict[str, Any], benchmark: Dict[str, Any] | No
         if name not in capability_types:
             capability_types.append(name)
 
-    add_capability("chat")
-
-    if any(item == "reasoning" for item in capability):
+    if "reasoning" in capability:
         add_capability("reasoning")
 
-    if any(item in {"tool calling", "tool-calling", "tools"} for item in capability):
+    if "code" in capability:
+        add_capability("coding")
+
+    if "tool" in capability or "function_call" in capability:
         add_capability("agent")
 
-    if any(item in {"vision", "image", "file attachments", "multimodal"} for item in capability + best_for):
-        add_capability("vision")
+    if any(item in {"vision", "image", "audio", "video"} for item in capability + best_for):
+        if "vision" in capability or "vision" in best_for:
+            add_capability("vision")
 
     if benchmark and benchmark.get("coding", 0) >= 60:
         add_capability("coding")
+
+    if benchmark and benchmark.get("agentic", 0) >= 55:
+        add_capability("agent")
 
     context_tokens = _parse_context_tokens(model.get("context"))
     if context_tokens is not None and context_tokens >= 500000:
         add_capability("long-context")
 
-    ordered = ["chat", "reasoning", "coding", "agent", "vision", "long-context"]
+    ordered = ["reasoning", "coding", "agent", "vision", "long-context"]
     return [item for item in ordered if item in capability_types]
+
+
+def _build_supports(capability: List[str]) -> List[str]:
+    supports = []
+    for capability_item in capability:
+        if capability_item in SUPPORTS_MAP:
+            for support in SUPPORTS_MAP[capability_item]:
+                if support not in supports:
+                    supports.append(support)
+    return supports
 
 
 def build_metadata(model: Dict[str, Any]) -> Dict[str, Any]:
@@ -311,12 +395,23 @@ def build_metadata(model: Dict[str, Any]) -> Dict[str, Any]:
     extra = _normalize_extra(model.get("extra"))
     benchmark = _normalize_benchmark(extra) if isinstance(extra, dict) else None
     context_tokens = _parse_context_tokens(model.get("context"))
+    capability = _normalize_capability(model.get("capability", []))
+    capability_type = _build_capability_type(model, benchmark)
+
+    provider_name = normalize_provider_name(str(model.get("provider", "")))
+    provider_model = build_litellm_model_name(model)
+    provider_priority = PROVIDER_PRIORITY.get(provider_name, 99)
+    uid = f"{provider_name}/{normalize_specific_model_name(model)}"
 
     metadata = {
         "provider": model.get("provider"),
+        "provider_model": provider_model,
+        "provider_priority": provider_priority,
+        "uid": uid,
         "score": model.get("score", 0.0),
-        "capability": model.get("capability", []),
-        "capability_type": _build_capability_type(model, benchmark),
+        "capability": capability,
+        "capability_type": capability_type,
+        "supports": _build_supports(capability),
         "context": model.get("context"),
         "context_tokens": context_tokens,
         "best_for": model.get("best_for", []),
@@ -332,7 +427,10 @@ def build_metadata(model: Dict[str, Any]) -> Dict[str, Any]:
 # Build Config
 # ============================================================
 
-def build_config(models: List[Dict[str, Any]]) -> Dict[str, Any]:
+def build_config(
+    models: List[Dict[str, Any]],
+    routing_strategy: str = "simple-shuffle",
+) -> Dict[str, Any]:
     """
     Build the final three-layer LiteLLM routing structure:
 
@@ -417,20 +515,20 @@ def build_config(models: List[Dict[str, Any]]) -> Dict[str, Any]:
                 discovered_capability_types.append(capability_type)
 
     for capability_type in discovered_capability_types:
-        if capability_type == "chat":
-            continue
-        capability_fallbacks.append({capability_type: ["chat"]})
+        cap_aliases = []
+        for alias in alias_order:
+            group = alias_groups.get(alias, [])
+            if any(capability_type in _build_capability_type(item["model"], _normalize_benchmark(item["model"].get("extra")) if isinstance(item["model"].get("extra"), dict) else None) for item in group):
+                cap_aliases.append(alias)
+        if cap_aliases:
+            capability_fallbacks.append({capability_type: cap_aliases})
 
-    # Capability aliases are exposed as logical route names, but the actual
-    # provider model target inside litellm_params.model must remain the real
-    # provider-side model ID to preserve direct provider-model semantics.
+    # Capability aliases are exposed as logical route names pointing to concrete model_name aliases,
+    # so that capability models route to model_name aliases rather than direct provider model IDs.
     capability_targets: Dict[str, str] = {}
 
     if alias_order:
-        first_alias = alias_order[0]
-        first_group = alias_groups[first_alias]
-        if first_group:
-            capability_targets["chat"] = first_group[0]["litellm_model"]
+        capability_targets["chat"] = alias_order[0]
 
     for capability_type in discovered_capability_types:
         if capability_type in capability_targets:
@@ -441,28 +539,45 @@ def build_config(models: List[Dict[str, Any]]) -> Dict[str, Any]:
             for item in group:
                 model = item["model"]
                 if capability_type in _build_capability_type(model, _normalize_benchmark(model.get("extra")) if isinstance(model.get("extra"), dict) else None):
-                    capability_targets[capability_type] = item["litellm_model"]
+                    capability_targets[capability_type] = alias
                     break
             if capability_type in capability_targets:
                 break
 
+    if alias_order and capability_targets.get("chat"):
+        model_list.append(
+            {
+                "model_name": "chat",
+                "litellm_params": {
+                    "model": capability_targets["chat"],
+                },
+                "metadata": {
+                    "logical_model": True,
+                    "capability_type": ["chat"],
+                },
+            }
+        )
+
     for capability_type in discovered_capability_types:
-        target_model = capability_targets.get(capability_type)
-        if not target_model:
+        target_alias = capability_targets.get(capability_type)
+        if not target_alias:
             continue
         model_list.append(
             {
                 "model_name": capability_type,
                 "litellm_params": {
-                    "model": target_model,
+                    "model": target_alias,
                 },
-                "metadata": {},
+                "metadata": {
+                    "logical_model": True,
+                    "capability_type": [capability_type],
+                },
             }
         )
 
     return {
         "router_settings": {
-            "routing_strategy": "simple-shuffle",
+            "routing_strategy": routing_strategy,
             "num_retries": 2,
             "timeout": 60,
             "fallbacks": capability_fallbacks,

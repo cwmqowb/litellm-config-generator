@@ -39,7 +39,7 @@ def test_build_config_emits_specific_alias_and_capability_fallback_order():
 
     fallback_aliases = config["router_settings"]["fallbacks"]
     assert {"chat": ["glm-5.2", "minimax-m3"]} in fallback_aliases
-    assert {"reasoning": ["chat"]} in fallback_aliases
+    assert {"reasoning": ["glm-5.2", "minimax-m3"]} in fallback_aliases
 
     model_names = [item["model_name"] for item in config["model_list"]]
     assert model_names.count("glm-5.2") == 3
@@ -103,20 +103,26 @@ def test_build_config_adds_router_and_litellm_settings_and_preserves_model_id():
     assert config["router_settings"]["timeout"] == 60
     assert config["router_settings"]["fallbacks"] == [
         {"chat": ["glm-5.2", "minimax-m3"]},
-        {"reasoning": ["chat"]},
+        {"reasoning": ["glm-5.2", "minimax-m3"]},
     ]
     assert config["litellm_settings"] == {"drop_params": True}
 
-    models_in_config = {
+    # Verify concrete model entries use provider model IDs
+    provider_models_in_config = {
         item["litellm_params"]["model"]
         for item in config["model_list"]
+        if item["model_name"] in ["glm-5.2", "minimax-m3"]
     }
-    assert models_in_config == {
+    assert provider_models_in_config == {
         "z-ai/glm-5.2",
         "minimax/minimax-m3",
     }
-    model_names = {item["model_name"] for item in config["model_list"]}
-    assert {"glm-5.2", "minimax-m3", "chat", "reasoning"}.issubset(model_names)
+
+    # Verify logical capability entries reference model_name aliases, NOT provider model IDs
+    chat_entry = next(item for item in config["model_list"] if item["model_name"] == "chat")
+    reasoning_entry = next(item for item in config["model_list"] if item["model_name"] == "reasoning")
+    assert chat_entry["litellm_params"]["model"] == "glm-5.2"
+    assert reasoning_entry["litellm_params"]["model"] == "glm-5.2"
 
 
 def test_build_config_classifies_reasoning_models_into_chat_and_reasoning():
@@ -172,23 +178,26 @@ def test_build_config_normalizes_metadata_and_auto_generates_capability_models()
     )
     metadata = provider_entry["metadata"]
 
+    assert metadata["provider_model"] == "z-ai/glm-5.2"
+    assert metadata["provider_priority"] == 1
+    assert metadata["uid"] == "nvidia/glm-5.2"
     assert metadata["context"] == "1.0M"
     assert metadata["context_tokens"] == 1048576
+    assert metadata["capability"] == ["reasoning", "tool", "json"]
     assert metadata["capability_type"] == [
-        "chat",
         "reasoning",
         "coding",
         "agent",
         "long-context",
     ]
+    assert metadata["supports"] == ["tool_call", "json"]
     assert metadata["extra"]["source"] == "freellm"
-    assert metadata["extra"]["benchmark"] == {
-        "intelligence": 51.1,
-        "coding": 68.8,
-        "agentic": 43.1,
-        "speed": 106,
-        "context_tokens": 1048576,
-    }
+    assert metadata["extra"]["benchmark"]["intelligence"] == 51.1
+    assert metadata["extra"]["benchmark"]["coding"] == 68.8
+    assert metadata["extra"]["benchmark"]["agentic"] == 43.1
+    assert metadata["extra"]["benchmark"]["speed"] == 106
+    assert metadata["extra"]["benchmark"]["context_tokens"] == 1048576
+    assert metadata["extra"]["benchmark"]["overall"] == 54.3
 
     model_names = {item["model_name"] for item in config["model_list"]}
     assert {"chat", "reasoning", "coding", "agent", "long-context"}.issubset(

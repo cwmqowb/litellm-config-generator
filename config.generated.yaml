@@ -5,8 +5,8 @@ router_settings:
   fallbacks:
   - chat:
     - glm-5.2
-    - minimax-m3
     - deepseek-v4-flash
+    - minimax-m3
     - hy3
     - nex-n2-pro
     - deepseek-v4-pro
@@ -16,15 +16,39 @@ router_settings:
     - glm-5.1
     - agnes-2.0-flash
   - reasoning:
-    - chat
+    - glm-5.2
+    - deepseek-v4-flash
+    - minimax-m3
+    - hy3
+    - nex-n2-pro
+    - deepseek-v4-pro
+    - nemotron-3-ultra-550b-a55b
+    - kimi-k2.6
+    - nvidia-nemotron-3-ultra-550b-a55b-free
+    - glm-5.1
   - coding:
-    - chat
+    - glm-5.2
   - agent:
-    - chat
+    - glm-5.2
+    - deepseek-v4-flash
+    - minimax-m3
+    - hy3
+    - nex-n2-pro
+    - deepseek-v4-pro
+    - nemotron-3-ultra-550b-a55b
+    - kimi-k2.6
+    - nvidia-nemotron-3-ultra-550b-a55b-free
+    - glm-5.1
+    - agnes-2.0-flash
   - long-context:
-    - chat
+    - glm-5.2
+    - deepseek-v4-flash
+    - minimax-m3
+    - deepseek-v4-pro
+    - nemotron-3-ultra-550b-a55b
+    - nvidia-nemotron-3-ultra-550b-a55b-free
   - vision:
-    - chat
+    - kimi-k2.6
 litellm_settings:
   drop_params: true
 model_list:
@@ -35,20 +59,25 @@ model_list:
     api_key: os.environ/NVIDIA_API_KEY_1
   metadata:
     provider: nvidia
+    provider_model: z-ai/glm-5.2
+    provider_priority: 1
+    uid: nvidia/glm-5.2
     score: 0.0
-    capability: &id001
+    capability:
     - reasoning
-    - tool calling
-    - structured output
+    - tool
+    - json
     capability_type:
-    - chat
     - reasoning
     - coding
     - agent
     - long-context
+    supports:
+    - tool_call
+    - json
     context: 1.0M
     context_tokens: 1048576
-    best_for: &id002
+    best_for: &id001
     - Chat
     extra:
       position: 2
@@ -57,8 +86,9 @@ model_list:
         intelligence: 51.1
         coding: 68.8
         agentic: 43.1
-        speed: 106
+        speed: 143
         context_tokens: 1048576
+        overall: 54.3
 - model_name: glm-5.2
   litellm_params:
     model: z-ai/glm-5.2
@@ -66,17 +96,25 @@ model_list:
     api_key: os.environ/NVIDIA_API_KEY_2
   metadata:
     provider: nvidia
+    provider_model: z-ai/glm-5.2
+    provider_priority: 1
+    uid: nvidia/glm-5.2
     score: 0.0
-    capability: *id001
+    capability:
+    - reasoning
+    - tool
+    - json
     capability_type:
-    - chat
     - reasoning
     - coding
     - agent
     - long-context
+    supports:
+    - tool_call
+    - json
     context: 1.0M
     context_tokens: 1048576
-    best_for: *id002
+    best_for: *id001
     extra:
       position: 2
       source: freellm
@@ -84,25 +122,33 @@ model_list:
         intelligence: 51.1
         coding: 68.8
         agentic: 43.1
-        speed: 106
+        speed: 143
         context_tokens: 1048576
-- model_name: minimax-m3
+        overall: 54.3
+- model_name: deepseek-v4-flash
   litellm_params:
-    model: minimax/minimax-m3
+    model: deepseek/deepseek-v4-flash
     api_base: https://openrouter.ai/api/v1
     api_key: os.environ/OPENROUTER_API_KEY
   metadata:
     provider: openrouter
+    provider_model: deepseek/deepseek-v4-flash
+    provider_priority: 2
+    uid: openrouter/deepseek-v4-flash
     score: 0.0
     capability:
     - reasoning
-    - tool calling
-    - structured output
+    - tool
+    - json
+    - thinking
     capability_type:
-    - chat
     - reasoning
     - agent
     - long-context
+    supports:
+    - tool_call
+    - json
+    - thinking
     context: 1.0M
     context_tokens: 1048576
     best_for:
@@ -111,84 +157,107 @@ model_list:
       position: 4
       source: freellm
       benchmark:
-        intelligence: 44.4
-        coding: 58.6
-        agentic: 35.4
-        speed: 77
+        intelligence: 40.3
+        coding: 56.2
+        agentic: 31.1
+        speed: 80
         context_tokens: 1048576
-- model_name: minimax-m3
+        overall: 42.5
+- model_name: deepseek-v4-flash
   litellm_params:
-    model: minimaxai/minimax-m3
+    model: deepseek-ai/deepseek-v4-flash
     api_base: https://integrate.api.nvidia.com/v1
     api_key: os.environ/NVIDIA_API_KEY_1
   metadata:
     provider: nvidia
+    provider_model: deepseek-ai/deepseek-v4-flash
+    provider_priority: 1
+    uid: nvidia/deepseek-v4-flash
     score: 0.0
-    capability: &id003
+    capability:
     - reasoning
-    - tool calling
+    - tool
+    - json
+    - thinking
     capability_type:
-    - chat
     - reasoning
     - agent
     - long-context
+    supports:
+    - tool_call
+    - json
+    - thinking
     context: 1.0M
     context_tokens: 1048576
-    best_for: &id004
+    best_for: &id002
     - Chat
     extra:
       position: 10
       source: freellm
       benchmark:
-        intelligence: 44.4
-        coding: 58.6
-        agentic: 35.4
-        speed: 77
+        intelligence: 40.3
+        coding: 56.2
+        agentic: 31.1
         context_tokens: 1048576
-- model_name: minimax-m3
+        overall: 42.5
+- model_name: deepseek-v4-flash
   litellm_params:
-    model: minimaxai/minimax-m3
+    model: deepseek-ai/deepseek-v4-flash
     api_base: https://integrate.api.nvidia.com/v1
     api_key: os.environ/NVIDIA_API_KEY_2
   metadata:
     provider: nvidia
+    provider_model: deepseek-ai/deepseek-v4-flash
+    provider_priority: 1
+    uid: nvidia/deepseek-v4-flash
     score: 0.0
-    capability: *id003
+    capability:
+    - reasoning
+    - tool
+    - json
+    - thinking
     capability_type:
-    - chat
     - reasoning
     - agent
     - long-context
+    supports:
+    - tool_call
+    - json
+    - thinking
     context: 1.0M
     context_tokens: 1048576
-    best_for: *id004
+    best_for: *id002
     extra:
       position: 10
       source: freellm
       benchmark:
-        intelligence: 44.4
-        coding: 58.6
-        agentic: 35.4
-        speed: 77
+        intelligence: 40.3
+        coding: 56.2
+        agentic: 31.1
         context_tokens: 1048576
-- model_name: deepseek-v4-flash
+        overall: 42.5
+- model_name: minimax-m3
   litellm_params:
-    model: deepseek/deepseek-v4-flash
+    model: minimax/minimax-m3
     api_base: https://openrouter.ai/api/v1
     api_key: os.environ/OPENROUTER_API_KEY
   metadata:
     provider: openrouter
+    provider_model: minimax/minimax-m3
+    provider_priority: 2
+    uid: openrouter/minimax-m3
     score: 0.0
     capability:
     - reasoning
-    - tool calling
-    - structured output
-    - temperature control
+    - tool
+    - json
     capability_type:
-    - chat
     - reasoning
     - agent
     - long-context
+    supports:
+    - tool_call
+    - json
     context: 1.0M
     context_tokens: 1048576
     best_for:
@@ -197,66 +266,79 @@ model_list:
       position: 5
       source: freellm
       benchmark:
-        intelligence: 40.3
-        coding: 56.2
-        agentic: 31.1
-        speed: 85
+        intelligence: 44.4
+        coding: 58.6
+        agentic: 35.4
+        speed: 78
         context_tokens: 1048576
-- model_name: deepseek-v4-flash
+        overall: 46.1
+- model_name: minimax-m3
   litellm_params:
-    model: deepseek-ai/deepseek-v4-flash
+    model: minimaxai/minimax-m3
     api_base: https://integrate.api.nvidia.com/v1
     api_key: os.environ/NVIDIA_API_KEY_1
   metadata:
     provider: nvidia
+    provider_model: minimaxai/minimax-m3
+    provider_priority: 1
+    uid: nvidia/minimax-m3
     score: 0.0
-    capability: &id005
+    capability:
     - reasoning
-    - tool calling
-    - structured output
-    - temperature control
+    - tool
     capability_type:
-    - chat
     - reasoning
     - agent
     - long-context
+    supports:
+    - tool_call
     context: 1.0M
     context_tokens: 1048576
-    best_for: &id006
+    best_for: &id003
     - Chat
     extra:
       position: 11
       source: freellm
       benchmark:
-        intelligence: 40.3
-        coding: 56.2
-        agentic: 31.1
+        intelligence: 44.4
+        coding: 58.6
+        agentic: 35.4
+        speed: 78
         context_tokens: 1048576
-- model_name: deepseek-v4-flash
+        overall: 46.1
+- model_name: minimax-m3
   litellm_params:
-    model: deepseek-ai/deepseek-v4-flash
+    model: minimaxai/minimax-m3
     api_base: https://integrate.api.nvidia.com/v1
     api_key: os.environ/NVIDIA_API_KEY_2
   metadata:
     provider: nvidia
+    provider_model: minimaxai/minimax-m3
+    provider_priority: 1
+    uid: nvidia/minimax-m3
     score: 0.0
-    capability: *id005
+    capability:
+    - reasoning
+    - tool
     capability_type:
-    - chat
     - reasoning
     - agent
     - long-context
+    supports:
+    - tool_call
     context: 1.0M
     context_tokens: 1048576
-    best_for: *id006
+    best_for: *id003
     extra:
       position: 11
       source: freellm
       benchmark:
-        intelligence: 40.3
-        coding: 56.2
-        agentic: 31.1
+        intelligence: 44.4
+        coding: 58.6
+        agentic: 35.4
+        speed: 78
         context_tokens: 1048576
+        overall: 46.1
 - model_name: hy3
   litellm_params:
     model: tencent/hy3
@@ -264,16 +346,22 @@ model_list:
     api_key: os.environ/OPENROUTER_API_KEY
   metadata:
     provider: openrouter
+    provider_model: tencent/hy3
+    provider_priority: 2
+    uid: openrouter/hy3
     score: 0.0
     capability:
     - reasoning
-    - tool calling
-    - structured output
-    - temperature control
+    - tool
+    - json
+    - thinking
     capability_type:
-    - chat
     - reasoning
     - agent
+    supports:
+    - tool_call
+    - json
+    - thinking
     context: 262K
     context_tokens: 268288
     best_for:
@@ -285,8 +373,9 @@ model_list:
         intelligence: 41.2
         coding: 58.8
         agentic: 30.7
-        speed: 69
+        speed: 70
         context_tokens: 268288
+        overall: 43.6
 - model_name: nex-n2-pro
   litellm_params:
     model: nex-agi/nex-n2-pro
@@ -294,14 +383,18 @@ model_list:
     api_key: os.environ/OPENROUTER_API_KEY
   metadata:
     provider: openrouter
+    provider_model: nex-agi/nex-n2-pro
+    provider_priority: 2
+    uid: openrouter/nex-n2-pro
     score: 0.0
     capability:
     - reasoning
-    - tool calling
+    - tool
     capability_type:
-    - chat
     - reasoning
     - agent
+    supports:
+    - tool_call
     context: 262K
     context_tokens: 268288
     best_for:
@@ -313,8 +406,9 @@ model_list:
         intelligence: 41.0
         coding: 59.1
         agentic: 31.0
-        speed: 126
+        speed: 128
         context_tokens: 268288
+        overall: 43.7
 - model_name: deepseek-v4-pro
   litellm_params:
     model: deepseek-ai/deepseek-v4-pro
@@ -322,20 +416,26 @@ model_list:
     api_key: os.environ/NVIDIA_API_KEY_1
   metadata:
     provider: nvidia
+    provider_model: deepseek-ai/deepseek-v4-pro
+    provider_priority: 1
+    uid: nvidia/deepseek-v4-pro
     score: 0.0
-    capability: &id007
+    capability:
     - reasoning
-    - tool calling
-    - structured output
-    - temperature control
+    - tool
+    - json
+    - thinking
     capability_type:
-    - chat
     - reasoning
     - agent
     - long-context
+    supports:
+    - tool_call
+    - json
+    - thinking
     context: 1.0M
     context_tokens: 1048576
-    best_for: &id008
+    best_for: &id004
     - Chat
     extra:
       position: 14
@@ -344,8 +444,9 @@ model_list:
         intelligence: 44.3
         coding: 59.4
         agentic: 36.4
-        speed: 62
+        speed: 57
         context_tokens: 1048576
+        overall: 46.7
 - model_name: deepseek-v4-pro
   litellm_params:
     model: deepseek-ai/deepseek-v4-pro
@@ -353,16 +454,26 @@ model_list:
     api_key: os.environ/NVIDIA_API_KEY_2
   metadata:
     provider: nvidia
+    provider_model: deepseek-ai/deepseek-v4-pro
+    provider_priority: 1
+    uid: nvidia/deepseek-v4-pro
     score: 0.0
-    capability: *id007
+    capability:
+    - reasoning
+    - tool
+    - json
+    - thinking
     capability_type:
-    - chat
     - reasoning
     - agent
     - long-context
+    supports:
+    - tool_call
+    - json
+    - thinking
     context: 1.0M
     context_tokens: 1048576
-    best_for: *id008
+    best_for: *id004
     extra:
       position: 14
       source: freellm
@@ -370,8 +481,9 @@ model_list:
         intelligence: 44.3
         coding: 59.4
         agentic: 36.4
-        speed: 62
+        speed: 57
         context_tokens: 1048576
+        overall: 46.7
 - model_name: nemotron-3-ultra-550b-a55b
   litellm_params:
     model: nvidia/nemotron-3-ultra-550b-a55b:free
@@ -379,16 +491,21 @@ model_list:
     api_key: os.environ/OPENROUTER_API_KEY
   metadata:
     provider: openrouter
+    provider_model: nvidia/nemotron-3-ultra-550b-a55b:free
+    provider_priority: 2
+    uid: openrouter/nemotron-3-ultra-550b-a55b
     score: 0.0
     capability:
     - reasoning
-    - tool calling
-    - temperature control
+    - tool
+    - thinking
     capability_type:
-    - chat
     - reasoning
     - agent
     - long-context
+    supports:
+    - tool_call
+    - thinking
     context: 1.0M
     context_tokens: 1048576
     best_for:
@@ -403,6 +520,7 @@ model_list:
         agentic: 27.4
         speed: 98
         context_tokens: 1048576
+        overall: 38.2
 - model_name: kimi-k2.6
   litellm_params:
     model: moonshotai/kimi-k2.6
@@ -410,18 +528,26 @@ model_list:
     api_key: os.environ/OPENROUTER_API_KEY
   metadata:
     provider: openrouter
+    provider_model: moonshotai/kimi-k2.6
+    provider_priority: 2
+    uid: openrouter/kimi-k2.6
     score: 0.0
     capability:
     - reasoning
-    - tool calling
-    - structured output
-    - file attachments
-    - temperature control
+    - tool
+    - json
+    - vision
+    - thinking
     capability_type:
-    - chat
     - reasoning
     - agent
     - vision
+    supports:
+    - tool_call
+    - json
+    - image_input
+    - image_output
+    - thinking
     context: 262K
     context_tokens: 268288
     best_for:
@@ -435,6 +561,7 @@ model_list:
         agentic: 30.3
         speed: 68
         context_tokens: 268288
+        overall: 43.0
 - model_name: nvidia-nemotron-3-ultra-550b-a55b-free
   litellm_params:
     model: nvidia-nemotron-3-ultra-550b-a55b-free
@@ -442,16 +569,21 @@ model_list:
     api_key: os.environ/KILO_API_KEY
   metadata:
     provider: kilo
+    provider_model: nvidia-nemotron-3-ultra-550b-a55b-free
+    provider_priority: 6
+    uid: kilo/nvidia-nemotron-3-ultra-550b-a55b-free
     score: 0.0
     capability:
     - reasoning
-    - tool calling
-    - temperature control
+    - tool
+    - thinking
     capability_type:
-    - chat
     - reasoning
     - agent
     - long-context
+    supports:
+    - tool_call
+    - thinking
     context: 1.0M
     context_tokens: 1048576
     best_for:
@@ -465,6 +597,7 @@ model_list:
         coding: 49.3
         agentic: 27.4
         context_tokens: 1048576
+        overall: 38.2
 - model_name: glm-5.1
   litellm_params:
     model: z-ai/glm-5.1
@@ -472,15 +605,20 @@ model_list:
     api_key: os.environ/OPENROUTER_API_KEY
   metadata:
     provider: openrouter
+    provider_model: z-ai/glm-5.1
+    provider_priority: 2
+    uid: openrouter/glm-5.1
     score: 0.0
     capability:
     - reasoning
-    - tool calling
-    - structured output
+    - tool
+    - json
     capability_type:
-    - chat
     - reasoning
     - agent
+    supports:
+    - tool_call
+    - json
     context: 205K
     context_tokens: 209920
     best_for:
@@ -494,6 +632,7 @@ model_list:
         agentic: 29.9
         speed: 65
         context_tokens: 209920
+        overall: 42.0
 - model_name: agnes-2.0-flash
   litellm_params:
     model: agnes-2.0-flash
@@ -501,12 +640,16 @@ model_list:
     api_key: os.environ/AGNES_API_KEY
   metadata:
     provider: agnes
+    provider_model: agnes-2.0-flash
+    provider_priority: 5
+    uid: agnes/agnes-2.0-flash
     score: 0.0
     capability:
-    - tool calling
+    - tool
     capability_type:
-    - chat
     - agent
+    supports:
+    - tool_call
     context: 256K
     context_tokens: 262144
     best_for:
@@ -519,25 +662,43 @@ model_list:
         context_tokens: 262144
 - model_name: chat
   litellm_params:
-    model: z-ai/glm-5.2
-  metadata: {}
+    model: glm-5.2
+  metadata:
+    logical_model: true
+    capability_type:
+    - chat
 - model_name: reasoning
   litellm_params:
-    model: z-ai/glm-5.2
-  metadata: {}
+    model: glm-5.2
+  metadata:
+    logical_model: true
+    capability_type:
+    - reasoning
 - model_name: coding
   litellm_params:
-    model: z-ai/glm-5.2
-  metadata: {}
+    model: glm-5.2
+  metadata:
+    logical_model: true
+    capability_type:
+    - coding
 - model_name: agent
   litellm_params:
-    model: z-ai/glm-5.2
-  metadata: {}
+    model: glm-5.2
+  metadata:
+    logical_model: true
+    capability_type:
+    - agent
 - model_name: long-context
   litellm_params:
-    model: z-ai/glm-5.2
-  metadata: {}
+    model: glm-5.2
+  metadata:
+    logical_model: true
+    capability_type:
+    - long-context
 - model_name: vision
   litellm_params:
-    model: moonshotai/kimi-k2.6
-  metadata: {}
+    model: kimi-k2.6
+  metadata:
+    logical_model: true
+    capability_type:
+    - vision
