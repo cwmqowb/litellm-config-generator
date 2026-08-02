@@ -136,5 +136,61 @@ def test_build_config_classifies_reasoning_models_into_chat_and_reasoning():
     config = build_config(models)
     model_names = {item["model_name"] for item in config["model_list"]}
 
-    assert {"glm-5.2", "chat", "reasoning"}.issubset(model_names)
-    assert len(config["model_list"]) == 4
+    assert {"glm-5.2", "chat", "reasoning", "agent"}.issubset(model_names)
+
+
+def test_build_config_normalizes_metadata_and_auto_generates_capability_models():
+    models = [
+        {
+            "provider": "nvidia",
+            "model_id": "z-ai/glm-5.2",
+            "api_base": "https://integrate.api.nvidia.com/v1",
+            "score": 0.0,
+            "capability": ["reasoning", "tool calling", "structured output"],
+            "context": "1.0M",
+            "best_for": ["Chat"],
+            "extra": {
+                "position": 2,
+                "source": "models.html",
+                "benchmark": [
+                    {"name": "Intelligence", "value": "51.1/100"},
+                    {"name": "Coding", "value": "68.8/100"},
+                    {"name": "Agentic", "value": "43.1/100"},
+                    {"name": "Speed", "value": "106 tok/s"},
+                    {"name": "Context", "value": "1.0M"},
+                ],
+            },
+        }
+    ]
+
+    config = build_config(models)
+
+    provider_entry = next(
+        item
+        for item in config["model_list"]
+        if item["model_name"] == "glm-5.2"
+    )
+    metadata = provider_entry["metadata"]
+
+    assert metadata["context"] == "1.0M"
+    assert metadata["context_tokens"] == 1048576
+    assert metadata["capability_type"] == [
+        "chat",
+        "reasoning",
+        "coding",
+        "agent",
+        "long-context",
+    ]
+    assert metadata["extra"]["source"] == "freellm"
+    assert metadata["extra"]["benchmark"] == {
+        "intelligence": 51.1,
+        "coding": 68.8,
+        "agentic": 43.1,
+        "speed": 106,
+        "context_tokens": 1048576,
+    }
+
+    model_names = {item["model_name"] for item in config["model_list"]}
+    assert {"chat", "reasoning", "coding", "agent", "long-context"}.issubset(
+        model_names
+    )

@@ -17,6 +17,14 @@ router_settings:
     - agnes-2.0-flash
   - reasoning:
     - chat
+  - coding:
+    - chat
+  - agent:
+    - chat
+  - long-context:
+    - chat
+  - vision:
+    - chat
 litellm_settings:
   drop_params: true
 model_list:
@@ -32,23 +40,25 @@ model_list:
     - reasoning
     - tool calling
     - structured output
+    capability_type:
+    - chat
+    - reasoning
+    - coding
+    - agent
+    - long-context
     context: 1.0M
+    context_tokens: 1048576
     best_for: &id002
     - Chat
-    extra: &id003
+    extra:
       position: 2
-      source: models.html
+      source: freellm
       benchmark:
-      - name: Intelligence
-        value: 51.1/100
-      - name: Coding
-        value: 68.8/100
-      - name: Agentic
-        value: 43.1/100
-      - name: Speed
-        value: 106 tok/s
-      - name: Context
-        value: 1.0M
+        intelligence: 51.1
+        coding: 68.8
+        agentic: 43.1
+        speed: 106
+        context_tokens: 1048576
 - model_name: glm-5.2
   litellm_params:
     model: z-ai/glm-5.2
@@ -58,9 +68,24 @@ model_list:
     provider: nvidia
     score: 0.0
     capability: *id001
+    capability_type:
+    - chat
+    - reasoning
+    - coding
+    - agent
+    - long-context
     context: 1.0M
+    context_tokens: 1048576
     best_for: *id002
-    extra: *id003
+    extra:
+      position: 2
+      source: freellm
+      benchmark:
+        intelligence: 51.1
+        coding: 68.8
+        agentic: 43.1
+        speed: 106
+        context_tokens: 1048576
 - model_name: minimax-m3
   litellm_params:
     model: minimax/minimax-m3
@@ -73,23 +98,24 @@ model_list:
     - reasoning
     - tool calling
     - structured output
+    capability_type:
+    - chat
+    - reasoning
+    - agent
+    - long-context
     context: 1.0M
+    context_tokens: 1048576
     best_for:
     - Chat
     extra:
       position: 4
-      source: models.html
+      source: freellm
       benchmark:
-      - name: Intelligence
-        value: 44.4/100
-      - name: Coding
-        value: 58.6/100
-      - name: Agentic
-        value: 35.4/100
-      - name: Speed
-        value: 77 tok/s
-      - name: Context
-        value: 1.0M
+        intelligence: 44.4
+        coding: 58.6
+        agentic: 35.4
+        speed: 77
+        context_tokens: 1048576
 - model_name: minimax-m3
   litellm_params:
     model: minimaxai/minimax-m3
@@ -98,26 +124,27 @@ model_list:
   metadata:
     provider: nvidia
     score: 0.0
-    capability: &id004
+    capability: &id003
     - reasoning
     - tool calling
+    capability_type:
+    - chat
+    - reasoning
+    - agent
+    - long-context
     context: 1.0M
-    best_for: &id005
+    context_tokens: 1048576
+    best_for: &id004
     - Chat
-    extra: &id006
+    extra:
       position: 10
-      source: models.html
+      source: freellm
       benchmark:
-      - name: Intelligence
-        value: 44.4/100
-      - name: Coding
-        value: 58.6/100
-      - name: Agentic
-        value: 35.4/100
-      - name: Speed
-        value: 77 tok/s
-      - name: Context
-        value: 1.0M
+        intelligence: 44.4
+        coding: 58.6
+        agentic: 35.4
+        speed: 77
+        context_tokens: 1048576
 - model_name: minimax-m3
   litellm_params:
     model: minimaxai/minimax-m3
@@ -126,10 +153,24 @@ model_list:
   metadata:
     provider: nvidia
     score: 0.0
-    capability: *id004
+    capability: *id003
+    capability_type:
+    - chat
+    - reasoning
+    - agent
+    - long-context
     context: 1.0M
-    best_for: *id005
-    extra: *id006
+    context_tokens: 1048576
+    best_for: *id004
+    extra:
+      position: 10
+      source: freellm
+      benchmark:
+        intelligence: 44.4
+        coding: 58.6
+        agentic: 35.4
+        speed: 77
+        context_tokens: 1048576
 - model_name: deepseek-v4-flash
   litellm_params:
     model: deepseek/deepseek-v4-flash
@@ -143,23 +184,24 @@ model_list:
     - tool calling
     - structured output
     - temperature control
+    capability_type:
+    - chat
+    - reasoning
+    - agent
+    - long-context
     context: 1.0M
+    context_tokens: 1048576
     best_for:
     - Chat
     extra:
       position: 5
-      source: models.html
+      source: freellm
       benchmark:
-      - name: Intelligence
-        value: 40.3/100
-      - name: Coding
-        value: 56.2/100
-      - name: Agentic
-        value: 31.1/100
-      - name: Speed
-        value: 85 tok/s
-      - name: Context
-        value: 1.0M
+        intelligence: 40.3
+        coding: 56.2
+        agentic: 31.1
+        speed: 85
+        context_tokens: 1048576
 - model_name: deepseek-v4-flash
   litellm_params:
     model: deepseek-ai/deepseek-v4-flash
@@ -168,26 +210,28 @@ model_list:
   metadata:
     provider: nvidia
     score: 0.0
-    capability: &id007
+    capability: &id005
     - reasoning
     - tool calling
     - structured output
     - temperature control
+    capability_type:
+    - chat
+    - reasoning
+    - agent
+    - long-context
     context: 1.0M
-    best_for: &id008
+    context_tokens: 1048576
+    best_for: &id006
     - Chat
-    extra: &id009
+    extra:
       position: 11
-      source: models.html
+      source: freellm
       benchmark:
-      - name: Intelligence
-        value: 40.3/100
-      - name: Coding
-        value: 56.2/100
-      - name: Agentic
-        value: 31.1/100
-      - name: Context
-        value: 1.0M
+        intelligence: 40.3
+        coding: 56.2
+        agentic: 31.1
+        context_tokens: 1048576
 - model_name: deepseek-v4-flash
   litellm_params:
     model: deepseek-ai/deepseek-v4-flash
@@ -196,10 +240,23 @@ model_list:
   metadata:
     provider: nvidia
     score: 0.0
-    capability: *id007
+    capability: *id005
+    capability_type:
+    - chat
+    - reasoning
+    - agent
+    - long-context
     context: 1.0M
-    best_for: *id008
-    extra: *id009
+    context_tokens: 1048576
+    best_for: *id006
+    extra:
+      position: 11
+      source: freellm
+      benchmark:
+        intelligence: 40.3
+        coding: 56.2
+        agentic: 31.1
+        context_tokens: 1048576
 - model_name: hy3
   litellm_params:
     model: tencent/hy3
@@ -213,23 +270,23 @@ model_list:
     - tool calling
     - structured output
     - temperature control
+    capability_type:
+    - chat
+    - reasoning
+    - agent
     context: 262K
+    context_tokens: 268288
     best_for:
     - Chat
     extra:
       position: 6
-      source: models.html
+      source: freellm
       benchmark:
-      - name: Intelligence
-        value: 41.2/100
-      - name: Coding
-        value: 58.8/100
-      - name: Agentic
-        value: 30.7/100
-      - name: Speed
-        value: 69 tok/s
-      - name: Context
-        value: 262K
+        intelligence: 41.2
+        coding: 58.8
+        agentic: 30.7
+        speed: 69
+        context_tokens: 268288
 - model_name: nex-n2-pro
   litellm_params:
     model: nex-agi/nex-n2-pro
@@ -241,23 +298,23 @@ model_list:
     capability:
     - reasoning
     - tool calling
+    capability_type:
+    - chat
+    - reasoning
+    - agent
     context: 262K
+    context_tokens: 268288
     best_for:
     - Chat
     extra:
       position: 9
-      source: models.html
+      source: freellm
       benchmark:
-      - name: Intelligence
-        value: 41/100
-      - name: Coding
-        value: 59.1/100
-      - name: Agentic
-        value: 31/100
-      - name: Speed
-        value: 126 tok/s
-      - name: Context
-        value: 262K
+        intelligence: 41.0
+        coding: 59.1
+        agentic: 31.0
+        speed: 126
+        context_tokens: 268288
 - model_name: deepseek-v4-pro
   litellm_params:
     model: deepseek-ai/deepseek-v4-pro
@@ -266,28 +323,29 @@ model_list:
   metadata:
     provider: nvidia
     score: 0.0
-    capability: &id010
+    capability: &id007
     - reasoning
     - tool calling
     - structured output
     - temperature control
+    capability_type:
+    - chat
+    - reasoning
+    - agent
+    - long-context
     context: 1.0M
-    best_for: &id011
+    context_tokens: 1048576
+    best_for: &id008
     - Chat
-    extra: &id012
+    extra:
       position: 14
-      source: models.html
+      source: freellm
       benchmark:
-      - name: Intelligence
-        value: 44.3/100
-      - name: Coding
-        value: 59.4/100
-      - name: Agentic
-        value: 36.4/100
-      - name: Speed
-        value: 62 tok/s
-      - name: Context
-        value: 1.0M
+        intelligence: 44.3
+        coding: 59.4
+        agentic: 36.4
+        speed: 62
+        context_tokens: 1048576
 - model_name: deepseek-v4-pro
   litellm_params:
     model: deepseek-ai/deepseek-v4-pro
@@ -296,10 +354,24 @@ model_list:
   metadata:
     provider: nvidia
     score: 0.0
-    capability: *id010
+    capability: *id007
+    capability_type:
+    - chat
+    - reasoning
+    - agent
+    - long-context
     context: 1.0M
-    best_for: *id011
-    extra: *id012
+    context_tokens: 1048576
+    best_for: *id008
+    extra:
+      position: 14
+      source: freellm
+      benchmark:
+        intelligence: 44.3
+        coding: 59.4
+        agentic: 36.4
+        speed: 62
+        context_tokens: 1048576
 - model_name: nemotron-3-ultra-550b-a55b
   litellm_params:
     model: nvidia/nemotron-3-ultra-550b-a55b:free
@@ -312,24 +384,25 @@ model_list:
     - reasoning
     - tool calling
     - temperature control
+    capability_type:
+    - chat
+    - reasoning
+    - agent
+    - long-context
     context: 1.0M
+    context_tokens: 1048576
     best_for:
     - Chat
     - Reasoning
     extra:
       position: 15
-      source: models.html
+      source: freellm
       benchmark:
-      - name: Intelligence
-        value: 37.8/100
-      - name: Coding
-        value: 49.3/100
-      - name: Agentic
-        value: 27.4/100
-      - name: Speed
-        value: 98 tok/s
-      - name: Context
-        value: 1.0M
+        intelligence: 37.8
+        coding: 49.3
+        agentic: 27.4
+        speed: 98
+        context_tokens: 1048576
 - model_name: kimi-k2.6
   litellm_params:
     model: moonshotai/kimi-k2.6
@@ -344,23 +417,24 @@ model_list:
     - structured output
     - file attachments
     - temperature control
+    capability_type:
+    - chat
+    - reasoning
+    - agent
+    - vision
     context: 262K
+    context_tokens: 268288
     best_for:
     - Chat
     extra:
       position: 16
-      source: models.html
+      source: freellm
       benchmark:
-      - name: Intelligence
-        value: 42.8/100
-      - name: Coding
-        value: 56/100
-      - name: Agentic
-        value: 30.3/100
-      - name: Speed
-        value: 68 tok/s
-      - name: Context
-        value: 262K
+        intelligence: 42.8
+        coding: 56.0
+        agentic: 30.3
+        speed: 68
+        context_tokens: 268288
 - model_name: nvidia-nemotron-3-ultra-550b-a55b-free
   litellm_params:
     model: nvidia-nemotron-3-ultra-550b-a55b-free
@@ -373,22 +447,24 @@ model_list:
     - reasoning
     - tool calling
     - temperature control
+    capability_type:
+    - chat
+    - reasoning
+    - agent
+    - long-context
     context: 1.0M
+    context_tokens: 1048576
     best_for:
     - Chat
     - Reasoning
     extra:
       position: 17
-      source: models.html
+      source: freellm
       benchmark:
-      - name: Intelligence
-        value: 37.8/100
-      - name: Coding
-        value: 49.3/100
-      - name: Agentic
-        value: 27.4/100
-      - name: Context
-        value: 1.0M
+        intelligence: 37.8
+        coding: 49.3
+        agentic: 27.4
+        context_tokens: 1048576
 - model_name: glm-5.1
   litellm_params:
     model: z-ai/glm-5.1
@@ -401,23 +477,23 @@ model_list:
     - reasoning
     - tool calling
     - structured output
+    capability_type:
+    - chat
+    - reasoning
+    - agent
     context: 205K
+    context_tokens: 209920
     best_for:
     - Chat
     extra:
       position: 19
-      source: models.html
+      source: freellm
       benchmark:
-      - name: Intelligence
-        value: 40.2/100
-      - name: Coding
-        value: 55.8/100
-      - name: Agentic
-        value: 29.9/100
-      - name: Speed
-        value: 65 tok/s
-      - name: Context
-        value: 205K
+        intelligence: 40.2
+        coding: 55.8
+        agentic: 29.9
+        speed: 65
+        context_tokens: 209920
 - model_name: agnes-2.0-flash
   litellm_params:
     model: agnes-2.0-flash
@@ -428,17 +504,19 @@ model_list:
     score: 0.0
     capability:
     - tool calling
+    capability_type:
+    - chat
+    - agent
     context: 256K
+    context_tokens: 262144
     best_for:
     - Chat
     extra:
       position: 20
-      source: models.html
+      source: freellm
       benchmark:
-      - name: Agentic
-        value: 60.9/100
-      - name: Context
-        value: 256K
+        agentic: 60.9
+        context_tokens: 262144
 - model_name: chat
   litellm_params:
     model: z-ai/glm-5.2
@@ -446,4 +524,20 @@ model_list:
 - model_name: reasoning
   litellm_params:
     model: z-ai/glm-5.2
+  metadata: {}
+- model_name: coding
+  litellm_params:
+    model: z-ai/glm-5.2
+  metadata: {}
+- model_name: agent
+  litellm_params:
+    model: z-ai/glm-5.2
+  metadata: {}
+- model_name: long-context
+  litellm_params:
+    model: z-ai/glm-5.2
+  metadata: {}
+- model_name: vision
+  litellm_params:
+    model: moonshotai/kimi-k2.6
   metadata: {}
